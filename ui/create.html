@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Create Ephemeral Room</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Darker+Grotesque:wght@300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --slime: #b8ff00;
+        --slime-dark: #8bc900;
+        --slime-glow: rgba(184, 255, 0, 0.4);
+        --void: #0a0a0a;
+        --void-light: #141414;
+        --void-lighter: #1f1f1f;
+        --smoke: #2a2a2a;
+        --ash: #888;
+        --ghost: #ccc;
+        --success: #00ff88;
+        --success-glow: rgba(0, 255, 136, 0.3);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Space Mono", monospace;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: var(--void);
+        background-image: radial-gradient(
+            ellipse at 30% 20%,
+            rgba(184, 255, 0, 0.04) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            ellipse at 70% 80%,
+            rgba(184, 255, 0, 0.03) 0%,
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 50% 50%,
+            var(--void-light) 0%,
+            var(--void) 100%
+          );
+        color: var(--ghost);
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(30px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes glitch {
+        0% {
+          text-shadow: 2px 0 var(--slime), -2px 0 #ff00ff;
+        }
+        25% {
+          text-shadow: -2px 0 var(--slime), 2px 0 #00ffff;
+        }
+        50% {
+          text-shadow: 2px 0 #ff00ff, -2px 0 var(--slime);
+        }
+        75% {
+          text-shadow: -2px 0 #00ffff, 2px 0 var(--slime);
+        }
+        100% {
+          text-shadow: 2px 0 var(--slime), -2px 0 #ff00ff;
+        }
+      }
+
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-5px);
+        }
+      }
+
+      .container {
+        background: var(--void-light);
+        border: 1px solid var(--smoke);
+        border-radius: 8px;
+        padding: 48px 40px;
+        max-width: 440px;
+        width: 90%;
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.5),
+          0 0 100px rgba(184, 255, 0, 0.03);
+        animation: fadeIn 0.6s ease-out;
+        position: relative;
+      }
+
+      .container::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--slime),
+          transparent
+        );
+        border-radius: 8px 8px 0 0;
+      }
+
+      h1 {
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 2.8rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        text-transform: uppercase;
+        margin: 0 0 8px 0;
+        color: var(--slime);
+        text-shadow: 0 0 40px var(--slime-glow), 0 0 80px rgba(184, 255, 0, 0.2);
+        text-align: center;
+      }
+
+      h1:hover {
+        animation: glitch 0.3s ease-in-out;
+        cursor: default;
+      }
+
+      .subtitle {
+        text-align: center;
+        color: var(--ash);
+        font-size: 13px;
+        margin-bottom: 36px;
+        letter-spacing: 0.05em;
+      }
+
+      .form-group {
+        margin-bottom: 28px;
+      }
+
+      label {
+        display: block;
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--ghost);
+        margin-bottom: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .radio-option {
+        display: flex;
+        align-items: center;
+        padding: 14px 18px;
+        border: 1px solid var(--smoke);
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: var(--void);
+      }
+
+      .radio-option:hover {
+        border-color: var(--slime-dark);
+        background: rgba(184, 255, 0, 0.02);
+      }
+
+      .radio-option input[type="radio"] {
+        margin: 0 14px 0 0;
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: var(--slime);
+      }
+
+      .radio-option.selected {
+        border-color: var(--slime);
+        background: rgba(184, 255, 0, 0.05);
+        box-shadow: 0 0 20px rgba(184, 255, 0, 0.08);
+      }
+
+      .radio-label {
+        font-size: 14px;
+        color: var(--ghost);
+      }
+
+      .radio-option.selected .radio-label {
+        color: var(--slime);
+      }
+
+      .security-notice {
+        margin: 20px 0;
+        padding: 14px 16px;
+        background: rgba(255, 165, 0, 0.08);
+        border: 1px solid rgba(255, 165, 0, 0.3);
+        border-radius: 4px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .security-icon {
+        font-size: 18px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+
+      .security-text {
+        color: var(--ghost);
+      }
+
+      .security-link {
+        color: var(--slime);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.2s ease;
+      }
+
+      .security-link:hover {
+        border-bottom-color: var(--slime);
+      }
+
+      .create-button {
+        width: 100%;
+        padding: 16px;
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 17px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: var(--slime);
+        color: var(--void);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 20px rgba(184, 255, 0, 0.3);
+      }
+
+      .create-button:hover {
+        background: var(--slime-dark);
+        box-shadow: 0 6px 30px rgba(184, 255, 0, 0.4);
+        transform: translateY(-2px);
+      }
+
+      .create-button:active {
+        transform: translateY(0);
+      }
+
+      .create-button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      .result {
+        display: none;
+        margin-top: 28px;
+        padding: 20px;
+        background: rgba(0, 255, 136, 0.05);
+        border: 1px solid var(--success);
+        border-radius: 4px;
+        animation: fadeIn 0.4s ease-out;
+      }
+
+      .result.show {
+        display: block;
+      }
+
+      .result h3 {
+        margin: 0 0 16px 0;
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--success);
+        letter-spacing: 0.03em;
+      }
+
+      .link-container {
+        display: flex;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .link-input {
+        flex: 1;
+        padding: 12px 14px;
+        background: var(--void);
+        border: 1px solid var(--smoke);
+        border-radius: 4px;
+        font-family: "Space Mono", monospace;
+        font-size: 12px;
+        color: var(--ghost);
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .link-input:focus {
+        border-color: var(--success);
+      }
+
+      .copy-button {
+        padding: 12px 20px;
+        background: var(--success);
+        color: var(--void);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        transition: all 0.2s ease;
+      }
+
+      .copy-button:hover {
+        box-shadow: 0 0 20px var(--success-glow);
+      }
+
+      .copy-button.copied {
+        background: var(--slime);
+      }
+
+      .expiry-info {
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--ash);
+        letter-spacing: 0.03em;
+      }
+
+      .error {
+        display: none;
+        margin-top: 20px;
+        padding: 14px 18px;
+        background: rgba(255, 100, 100, 0.08);
+        border: 1px solid #ff6b6b;
+        border-left: 3px solid #ff6b6b;
+        border-radius: 4px;
+        color: #ff6b6b;
+        font-size: 13px;
+        animation: fadeIn 0.3s ease-out;
+      }
+
+      .error.show {
+        display: block;
+      }
+
+      /* Decorative elements */
+      .noise {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        opacity: 0.015;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        z-index: 9999;
+      }
+
+      .scanline {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        background: repeating-linear-gradient(
+          0deg,
+          rgba(0, 0, 0, 0.1) 0px,
+          rgba(0, 0, 0, 0.1) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+        opacity: 0.03;
+        z-index: 9998;
+      }
+
+      /* Footer tag */
+      .tag {
+        margin-top: 32px;
+        font-size: 11px;
+        color: var(--ash);
+        opacity: 0.4;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        text-align: center;
+      }
+
+      .tag span {
+        color: var(--slime);
+      }
+
+      /* Decorative corner accents */
+      .corner {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        border-color: var(--slime);
+        opacity: 0.3;
+      }
+
+      .corner-tl {
+        top: 12px;
+        left: 12px;
+        border-top: 2px solid;
+        border-left: 2px solid;
+      }
+
+      .corner-tr {
+        top: 12px;
+        right: 12px;
+        border-top: 2px solid;
+        border-right: 2px solid;
+      }
+
+      .corner-bl {
+        bottom: 12px;
+        left: 12px;
+        border-bottom: 2px solid;
+        border-left: 2px solid;
+      }
+
+      .corner-br {
+        bottom: 12px;
+        right: 12px;
+        border-bottom: 2px solid;
+        border-right: 2px solid;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="noise"></div>
+    <div class="scanline"></div>
+
+    <div class="container">
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
+
+      <h1>Ephemeral</h1>
+      <p class="subtitle">end-to-end encrypted // </p>
+
+      <form id="createForm">
+        <div class="form-group">
+          <label>Room expires after</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input
+                type="radio"
+                name="ttl"
+                value="15m"
+                onchange="updateSelection(this)"
+              />
+              <span class="radio-label">15 minutes</span>
+            </label>
+            <label class="radio-option selected">
+              <input
+                type="radio"
+                name="ttl"
+                value="1h"
+                checked
+                onchange="updateSelection(this)"
+              />
+              <span class="radio-label">1 hour (default)</span>
+            </label>
+            <label class="radio-option">
+              <input
+                type="radio"
+                name="ttl"
+                value="24h"
+                onchange="updateSelection(this)"
+              />
+              <span class="radio-label">24 hours</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="security-notice">
+          <span class="security-icon">⚠️</span>
+          <span class="security-text">
+            The room link is the password. Anyone with it can read all messages.
+            <a href="/docs/security" class="security-link">Read about security & OPSEC</a>
+          </span>
+        </div>
+
+        <button type="submit" class="create-button" id="createBtn">
+          Create Room
+        </button>
+      </form>
+
+      <div class="result" id="result">
+        <h3>✓ Room created</h3>
+        <div class="link-container">
+          <input
+            type="text"
+            class="link-input"
+            id="roomLink"
+            readonly
+            onclick="this.select()"
+          />
+          <button class="copy-button" id="copyBtn" onclick="copyLink()">
+            Copy
+          </button>
+        </div>
+        <div class="expiry-info" id="expiryInfo"></div>
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <div class="tag">encrypted with <span>♥</span> // ephemeral</div>
+    </div>
+
+    <script>
+      function updateSelection(radio) {
+        document.querySelectorAll(".radio-option").forEach((option) => {
+          option.classList.remove("selected");
+        });
+        radio.parentElement.classList.add("selected");
+      }
+
+      document
+        .getElementById("createForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const createBtn = document.getElementById("createBtn");
+          const result = document.getElementById("result");
+          const error = document.getElementById("error");
+          const ttl = document.querySelector('input[name="ttl"]:checked').value;
+
+          // Reset UI
+          result.classList.remove("show");
+          error.classList.remove("show");
+          createBtn.disabled = true;
+          createBtn.textContent = "Creating...";
+
+          try {
+            const response = await fetch("/create", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ ttl: ttl }),
+            });
+
+            if (!response.ok) {
+              throw new Error("Failed to create room");
+            }
+
+            const data = await response.json();
+            const fullUrl = window.location.origin + data.url;
+
+            // Show result
+            document.getElementById("roomLink").value = fullUrl;
+            document.getElementById("expiryInfo").textContent =
+              "🕒 Expires: " + formatExpiry(data.expires_at);
+            result.classList.add("show");
+
+            // Reset copy button state
+            const copyBtn = document.getElementById("copyBtn");
+            copyBtn.textContent = "Copy";
+            copyBtn.classList.remove("copied");
+          } catch (err) {
+            error.textContent = "⚠ Failed to create room. Please try again.";
+            error.classList.add("show");
+          } finally {
+            createBtn.disabled = false;
+            createBtn.textContent = "Create Room";
+          }
+        });
+
+      function copyLink() {
+        const input = document.getElementById("roomLink");
+        const copyBtn = document.getElementById("copyBtn");
+
+        input.select();
+        document.execCommand("copy");
+
+        copyBtn.textContent = "Copied!";
+        copyBtn.classList.add("copied");
+
+        setTimeout(() => {
+          copyBtn.textContent = "Copy";
+          copyBtn.classList.remove("copied");
+        }, 2000);
+      }
+
+      function formatExpiry(isoString) {
+        const date = new Date(isoString);
+        return date.toLocaleString();
+      }
+    </script>
+  </body>
+</html>

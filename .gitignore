@@ -1,0 +1,49 @@
+# ============================
+# Secrets & credentials
+# ============================
+.env
+*.env
+*.key
+*.pem
+*.crt
+*.p12
+*.der
+*.jks
+
+# ============================
+# Runtime state / identity
+# ============================
+*.db
+*.sqlite
+*.sqlite3
+
+/var/
+/var/lib/ephemeral/
+/var/lib/tor/
+/data/
+/state/
+/secrets/
+/runtime/
+
+hostname
+hs_ed25519_*
+
+# ============================
+# Build artifacts
+# ============================
+node_modules/
+ui/node_modules/
+dist/
+build/
+target/
+coverage/
+__pycache__/
+
+ephemeral
+ephemeral-test
+
+# ============================
+# OS junk
+# ============================
+.DS_Store
+Thumbs.db
