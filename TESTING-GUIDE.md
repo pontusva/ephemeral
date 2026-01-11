@@ -1,4 +1,4 @@
-# Quick Test Guide - Hardened E2EE
+# Quick Test Guide - E2EE with Cross-Device Support
 
 ## 🚀 Test Room Ready
 
@@ -6,16 +6,35 @@
 http://127.0.0.1:4000/#6b6f4e2500f48a1bdc1d8b3aa9eafc8e
 ```
 
+**Note:** Create a new room with `curl -X POST http://127.0.0.1:4000/create` if this one expired.
+
 ---
 
 ## ⚡ Quick Tests (Console-Based)
 
 ### Test 1: Normal Operation
 
-1. Open URL in two browsers
-2. Both should show: `[system] 🔒 E2EE active`
-3. Send messages - automatically encrypted
-4. ✅ Works!
+1. Open URL in a browser
+2. Should show immediately:
+   ```
+   [system] Loading cryptography library...
+   [system] Cryptography library loaded
+   [system] Generated ephemeral keypair
+   [system] Room encryption key ready
+   [system] 🔒 E2EE active
+   [connected]
+   ```
+3. Open same URL in another browser/device
+4. Send messages - automatically encrypted
+5. ✅ Works!
+
+### Test 1b: Cross-Device & Message History
+
+1. Send messages in browser A
+2. Close browser B completely
+3. Reopen same URL in browser B (or different device)
+4. Message history appears and is decrypted automatically
+5. ✅ Cross-device access works!
 
 ---
 
@@ -53,6 +72,20 @@ ws.send(JSON.stringify({ t: "HACK", d: {} }));
 ```
 
 ✅ **Type validation works!**
+
+---
+
+### Test 3b: Encrypted Image Transfer
+
+1. Click the 📷 button
+2. Select an image (up to 5MB)
+3. Watch in console:
+   ```
+   [system] Sending image: photo.jpg (123.4KB, 8 chunks)
+   [system] Image sent
+   ```
+4. Receiver sees encrypted image preview with download button
+5. ✅ Encrypted images work!
 
 ---
 
@@ -100,34 +133,42 @@ ws.send(
 
 ---
 
-## 🔒 What Was Hardened
+## 🔒 Implementation Features
 
-| Feature                 | Status           |
-| ----------------------- | ---------------- |
-| Explicit state machine  | ✅ Implemented   |
-| No-downgrade policy     | ✅ Enforced      |
-| Message type allow-list | ✅ Active        |
-| Schema validation       | ✅ All types     |
-| Size limits             | ✅ Enforced      |
-| Safe error handling     | ✅ Never crashes |
-| Debug mode              | ✅ Available     |
-
----
-
-## 📊 Security Level
-
-**Before**: 🟡 Functional but vulnerable
-**After**: 🟢 Production-ready with hardened invariants
+| Feature                      | Status                    |
+| ---------------------------- | ------------------------- |
+| Deterministic room keys      | ✅ Implemented            |
+| Cross-device access          | ✅ Enabled                |
+| Message history replay       | ✅ Automatic              |
+| Encrypted image transfer     | ✅ Chunked (max 5MB)      |
+| Explicit state machine       | ✅ Implemented            |
+| No-downgrade policy          | ✅ Enforced               |
+| Message type allow-list      | ✅ Active (7 types)       |
+| Schema validation            | ✅ All types              |
+| Size limits                  | ✅ Enforced               |
+| Safe error handling          | ✅ Never crashes          |
+| Debug mode                   | ✅ Available (DEBUG flag) |
 
 ---
 
-## 🎯 Key Improvements
+## 📊 Architecture
 
-1. **Downgrade Protection**: Can't send/receive plaintext after E2EE
-2. **State Safety**: Explicit handshake state machine
-3. **Input Validation**: All messages validated before processing
-4. **DoS Protection**: Size limits prevent resource exhaustion
-5. **Error Safety**: Comprehensive error handling, never crashes
+**Key Derivation**: Deterministic (room token → encryption key)
+**Trade-off**: Cross-device + history vs. forward secrecy
+**Result**: Same URL = same decryption key
+
+---
+
+## 🎯 Key Features
+
+1. **Immediate E2EE**: Activates on page load, no peer wait
+2. **Cross-Device**: Open same URL on phone/laptop/tablet
+3. **Message History**: Automatic replay after reconnection
+4. **Encrypted Images**: Chunked transfer, E2EE-only
+5. **Downgrade Protection**: Can't send/receive plaintext after E2EE
+6. **Input Validation**: All messages validated before processing
+7. **DoS Protection**: Size limits prevent resource exhaustion
+8. **Error Safety**: Comprehensive error handling, never crashes
 
 ---
 

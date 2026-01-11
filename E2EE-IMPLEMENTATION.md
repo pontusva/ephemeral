@@ -4,8 +4,7 @@
 
 ### Cryptographic Protocol
 
-**Key Agreement**: X25519 (Elliptic Curve Diffie-Hellman)
-**Key Derivation**: HKDF-like using libsodium's KDF
+**Key Derivation**: Deterministic room-token-based (enables history replay & cross-device)
 **Encryption**: XChaCha20-Poly1305 (AEAD)
 **Library**: libsodium.js (vendored locally)
 
@@ -14,35 +13,35 @@
 ```
 Client A                          Server (Relay)                    Client B
    |                                    |                                |
-   |--- Generate X25519 keypair ------->|                                |
+   |--- Derive room key from token ---->|                                |
+   |    roomHash = SHA256(roomToken)                                     |
+   |    msgKey = KDF(roomHash, "ephemeral-room-v1")                      |
    |                                    |                                |
-   |--- HELLO { pub: base64(pubkey) } ->|-> relay ---------------------->|
+   |--- [🔒 E2EE Active immediately] -->|                                |
    |                                    |                                |
-   |                                    |<- relay ----- HELLO { pub } ---|
+   |--- READY { lastSeenSeq } --------->|                                |
+   |    (request history replay)        |                                |
+   |                                    |                                |
+   |                                    |<---- relay history ------------|
    |<-----------------------------------|                                |
-   |                                    |                                |
-   |--- Derive shared secret ---------->|                                |
-   |    shared = X25519(myPriv, theirPub)                                |
-   |    roomSalt = SHA256(protocol + roomToken)                          |
-   |    sessionKey = KDF(shared XOR roomSalt, "session")                 |
-   |    msgKey = KDF(sessionKey, "msg")                                  |
-   |                                    |                                |
-   |--- READY { v: 1 } ---------------->|-> relay ---------------------->|
-   |                                    |                                |
-   |                                    |<- relay ----------- READY -----|
-   |<-----------------------------------|                                |
-   |                                    |                                |
-   [🔒 E2EE Active]                                          [🔒 E2EE Active]
    |                                    |                                |
    |--- MSG { n: nonce, c: ciphertext} >|-> relay ---------------------->|
    |                                    |                                |
    |                                    |<- relay --------- MSG { ... } -|
    |<-----------------------------------|                                |
+   |                                    |                                |
+   |--- IMG_META (encrypted) ---------->|-> relay ---------------------->|
+   |--- IMG_CHUNK (encrypted) --------->|-> relay ---------------------->|
+   |--- IMG_END (encrypted) ----------->|-> relay ---------------------->|
 ```
+
+**Note**: X25519 keypairs are still generated and HELLO messages exchanged, but these keys are
+**not used for encryption**. Encryption is based solely on the room token, enabling cross-device
+access and message history replay.
 
 ### Message Types
 
-#### 1. HELLO - Key Exchange
+#### 1. HELLO - Peer Discovery (legacy, keys not used for encryption)
 
 ```json
 {
@@ -54,31 +53,113 @@ Client A                          Server (Relay)                    Client B
 }
 ```
 
-#### 2. READY - Handshake Complete
+#### 2. READY - Request History Replay
 
 ```json
 {
   "t": "READY",
   "d": {
-    "v": 1
+    "v": 1,
+    "lastSeenSeq": 42
   }
 }
 ```
 
-#### 3. MSG - Encrypted Message
+#### 3. MSG - Encrypted Text Message
 
 ```json
 {
   "t": "MSG",
   "d": {
     "v": 1,
+    "seq": 123,
     "n": "<base64-encoded-24-byte-nonce>",
     "c": "<base64-encoded-ciphertext-with-MAC>"
   }
 }
 ```
 
-#### 4. CHAT - Plaintext Fallback
+Inner payload (after decryption):
+```json
+{
+  "text": "Hello world"
+}
+```
+
+#### 4. IMG_META - Encrypted Image Transfer Start
+
+```json
+{
+  "t": "IMG_META",
+  "d": {
+    "v": 1,
+    "seq": 124,
+    "n": "<base64-nonce>",
+    "c": "<base64-ciphertext>"
+  }
+}
+```
+
+Inner payload (after decryption):
+```json
+{
+  "type": "IMG_META",
+  "id": "<random-32-hex-chars>",
+  "name": "photo.jpg",
+  "mime": "image/jpeg",
+  "size": 102400,
+  "chunkSize": 16384,
+  "chunks": 7
+}
+```
+
+#### 5. IMG_CHUNK - Encrypted Image Data Chunk
+
+```json
+{
+  "t": "IMG_CHUNK",
+  "d": {
+    "v": 1,
+    "seq": 125,
+    "n": "<base64-nonce>",
+    "c": "<base64-ciphertext>"
+  }
+}
+```
+
+Inner payload (after decryption):
+```json
+{
+  "type": "IMG_CHUNK",
+  "id": "<transfer-id>",
+  "i": 0,
+  "b": "<base64-image-bytes>"
+}
+```
+
+#### 6. IMG_END - Encrypted Image Transfer Complete
+
+```json
+{
+  "t": "IMG_END",
+  "d": {
+    "v": 1,
+    "seq": 131,
+    "n": "<base64-nonce>",
+    "c": "<base64-ciphertext>"
+  }
+}
+```
+
+Inner payload (after decryption):
+```json
+{
+  "type": "IMG_END",
+  "id": "<transfer-id>"
+}
+```
+
+#### 7. CHAT - Plaintext Fallback (blocked after E2EE active)
 
 ```json
 {
@@ -92,18 +173,18 @@ Client A                          Server (Relay)                    Client B
 ### Key Derivation Details
 
 ```
-1. X25519 Key Agreement:
-   sharedSecret = crypto_scalarmult(myPrivateKey, peerPublicKey)
+1. Room Hash:
+   roomHash = crypto_generichash(32, roomToken)
 
-2. Room Binding:
-   roomSalt = crypto_generichash(32, "ephemeral-e2ee-v1|" + roomToken)
-   boundSecret = sharedSecret XOR roomSalt
+2. Message Key (deterministic, allows cross-device + history):
+   msgKey = crypto_kdf_derive_from_key(32, 1, "ephemeral-room-v1", roomHash)
 
-3. Session Key:
-   sessionKey = crypto_kdf_derive_from_key(32, 1, "session", boundSecret)
-
-4. Message Key:
-   msgKey = crypto_kdf_derive_from_key(32, 1, "msg", sessionKey)
+This deterministic approach means:
+✅ Same room URL = same encryption key
+✅ Cross-device access (open same URL on phone/laptop)
+✅ Message history replay after reconnection
+❌ No forward secrecy (room URL = decryption key)
+❌ Anyone with the URL can decrypt all messages
 ```
 
 ### Encryption Details
@@ -150,42 +231,27 @@ ciphertext = crypto_aead_xchacha20poly1305_ietf_encrypt(
      [system] Loading cryptography library...
      [system] Cryptography library loaded
      [system] Generated ephemeral keypair
+     [system] Room encryption key ready
+     [system] 🔒 E2EE active
      [connected]
-     [system] Sent key exchange (HELLO)
      ```
-   - The **warning banner should still be visible** (waiting for peer)
+   - ✅ Warning banner **hidden immediately**
+   - ✅ Green status box: "🔒 End-to-end encryption active"
 
 3. **Open Client B:**
 
    - Open the same URL in another browser (or incognito window)
-   - Client B should see:
+   - Client B should see the same:
      ```
      [system] Loading cryptography library...
      [system] Cryptography library loaded
      [system] Generated ephemeral keypair
+     [system] Room encryption key ready
+     [system] 🔒 E2EE active
      [connected]
-     [system] Sent key exchange (HELLO)
-     [system] Received peer public key
-     [system] 🔒 E2EE handshake complete
-     [system] Sent READY signal
-     [system] Peer ready
      ```
 
-4. **Client A should then see:**
-
-   ```
-   [system] Received peer public key
-   [system] 🔒 E2EE handshake complete
-   [system] Sent READY signal
-   [system] Peer ready
-   ```
-
-5. **Both clients should now show:**
-
-   - ✅ Warning banner **hidden**
-   - ✅ Green status box: "🔒 End-to-end encryption active"
-
-6. **Send encrypted messages:**
+4. **Send encrypted messages:**
    - Type "Hello from Client A" in Client A → press Send
    - Client A shows: `< Hello from Client A`
    - Client B shows: `> Hello from Client A`
@@ -218,54 +284,66 @@ The server **cannot** read the plaintext. It only relays the envelope.
 3. Messages will be sent as `CHAT` type (plaintext)
 4. Both peers will see `[plaintext]` tags on messages
 
-### Test 4: Key Expiry on Reconnect
+### Test 4: Cross-Device Access & Message History
 
-1. Disconnect one client (close tab or kill connection)
-2. Reconnect the same client (refresh page)
-3. New ephemeral keypair is generated
-4. Handshake repeats automatically
-5. E2EE reestablishes with **new keys**
+1. Send messages from Client A
+2. Close Client B completely
+3. Open Client B on a different device (or browser) with the same URL
+4. Client B will **automatically receive message history** (decrypted successfully)
+5. This works because encryption is room-token-based, not peer-based
+
+### Test 5: Encrypted Image Transfer
+
+1. Ensure E2EE is active (green banner visible)
+2. Click the 📷 button
+3. Select an image (max 5MB)
+4. Image is chunked, encrypted, and transmitted
+5. Receiver sees decrypted image preview with download button
 
 ## 🔒 Security Properties
 
 ### ✅ Implemented
 
-- **Forward Secrecy**: Keys are ephemeral (regenerated on every connection)
-- **Room Binding**: Keys are cryptographically bound to room token
+- **Room Binding**: Keys are cryptographically derived from room token
 - **Authenticated Encryption**: XChaCha20-Poly1305 provides confidentiality + integrity
 - **Server Ignorance**: Server is crypto-agnostic, cannot decrypt messages
 - **Nonce Freshness**: Random 24-byte nonce per message (never reused)
 - **MAC Protection**: 16-byte Poly1305 MAC prevents tampering
 - **Protocol Binding**: AAD includes protocol version and room token
+- **Cross-Device Access**: Same room URL works on any device
+- **Message History**: Messages are replayable after reconnection
+- **Encrypted Images**: Images are chunked and encrypted (never sent in plaintext)
+- **No Downgrade**: Plaintext messages blocked after E2EE activates
 
 ### ⚠️ Limitations (By Design)
 
+- **No Forward Secrecy**: Room URL = decryption key (required for history replay)
 - **No Identity Verification**: No way to verify peer identity (intentional for ephemeral chat)
-- **No Message Authentication**: Can't prove who sent a message (both peers share the same key)
-- **No Persistence**: Keys are lost on disconnect (intentional - ephemeral!)
-- **2-Party Only**: Protocol assumes exactly 2 participants
-- **Trust on First Use**: No protection against MITM during initial key exchange
+- **No Message Authentication**: Can't prove who sent a message (symmetric encryption)
+- **URL Security Critical**: Anyone with the room URL can decrypt all messages
+- **Multi-Party**: Protocol supports multiple participants (not limited to 2)
 
 ### 🎯 Threat Model
 
 **Protects Against:**
 
-- Passive network eavesdropping (traffic interception)
-- Server operator reading messages
-- Database compromise (no persistence)
+- Passive network eavesdropping (without room URL)
+- Server operator reading messages (without room URL)
+- Database compromise at server level
 - Traffic analysis of message content
 
 **Does NOT Protect Against:**
 
-- Active MITM during initial connection (trust on first use)
+- URL compromise (room URL = decryption key)
 - Compromised endpoint (malware on client device)
-- Shoulder surfing
+- Shoulder surfing or screen recording
 - Server dropping/modifying messages (no acknowledgments)
+- Replay attacks (deterministic keys enable history by design)
 
 ## 📁 Modified Files
 
-1. ✅ `ui/index.html` - Added libsodium script + E2EE status indicator
-2. ✅ `ui/app.js` - Complete E2EE implementation (465 lines)
+1. ✅ `ui/index.html` - Added libsodium script + E2EE status indicator + image button
+2. ✅ `ui/app.js` - Complete E2EE implementation (1396 lines) with encrypted image transfer
 3. ✅ `ui/vendor/sodium.js` - Vendored libsodium.js (1.7 MB)
 4. ✅ `internal/httpx/router.go` - Added `/vendor/` route
 
@@ -292,24 +370,28 @@ The server **cannot** read the plaintext. It only relays the envelope.
 
 ## 🎉 Acceptance Criteria - ALL MET
 
-- [x] Two browsers exchange HELLO and derive same key
+- [x] E2EE activates immediately on page load (deterministic keys)
 - [x] Banner hides when E2EE active
 - [x] "🔒 E2EE active" indicator shows
 - [x] Messages transmitted as encrypted MSG envelopes
 - [x] Receiver successfully decrypts and displays plaintext
-- [x] Reloading tab resets encryption (new ephemeral session)
-- [x] Fallback to plaintext if libsodium fails
+- [x] Cross-device access works (same URL = same decryption key)
+- [x] Message history replay after reconnection
+- [x] Encrypted image transfer (chunked, E2EE-only)
+- [x] Fallback to plaintext if libsodium fails (with warning)
+- [x] No downgrade attacks (plaintext blocked after E2EE active)
 - [x] Server remains crypto-agnostic (no backend changes)
 - [x] No CDN dependencies (fully vendored)
 - [x] Works with room token in URL fragment
 
 ## 🧠 Implementation Notes
 
-### Why X25519?
+### Why deterministic room-token-based keys?
 
-- Fast, secure, constant-time elliptic curve
-- Well-supported by libsodium
-- 32-byte keys (smaller than RSA)
+- Enables cross-device access (same URL = same key)
+- Allows message history replay after reconnection
+- Simplifies protocol (no peer key exchange required)
+- Trade-off: sacrifices forward secrecy for usability
 
 ### Why XChaCha20-Poly1305?
 
@@ -318,11 +400,11 @@ The server **cannot** read the plaintext. It only relays the envelope.
 - Faster than AES on non-hardware-accelerated platforms
 - No timing side-channels
 
-### Why HKDF-like derivation?
+### Why KDF with context string?
 
-- Derives multiple keys from single shared secret
-- Binds keys to room (prevents cross-room attacks)
-- Separates session key from message key (defense in depth)
+- Derives deterministic keys from room token
+- Context string "ephemeral-room-v1" ensures key separation
+- Prevents cross-protocol attacks
 
 ### Why random nonces?
 
@@ -330,8 +412,14 @@ The server **cannot** read the plaintext. It only relays the envelope.
 - Collision probability negligible
 - Simpler than counter-based nonces (no state synchronization)
 
+### Why are X25519 keys still generated?
+
+- Legacy compatibility for potential future peer-based encryption
+- Currently not used for message encryption
+- Could be used for future features (identity verification, etc.)
+
 ---
 
-**Status**: ✅ **COMPLETE** - E2EE fully implemented and tested
-**Build**: `ephemeral-new` binary running on `http://127.0.0.1:4000`
-**Test URL**: http://127.0.0.1:4000/#512ab0d9d71227886dc2fa81427af4f9
+**Status**: ✅ **COMPLETE** - E2EE with deterministic room-token-based encryption
+**Architecture**: Room URL = encryption key (enables cross-device + history)
+**Features**: Text + encrypted image transfer (chunked), message history replay
