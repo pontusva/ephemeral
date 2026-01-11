@@ -18,7 +18,7 @@ Send messages and images that disappear when the room expires. Access the same c
 - 📜 **Message history** - Automatic replay after reconnection
 - 🖼️ **Encrypted images** - Send images up to 5MB (chunked & encrypted)
 - ⏰ **Auto-expiring rooms** - Configurable TTL (default: 24h)
-- 🚫 **Zero persistence** - Messages exist only in memory
+- 💾 **SQLite storage** - Encrypted messages stored on disk, auto-deleted on expiry
 - 🧅 **Tor-friendly** - No external dependencies, fully self-contained
 - 🎨 **Minimal UI** - Clean terminal-inspired interface
 
@@ -76,8 +76,8 @@ E2EE activates immediately. Send messages and images - they're encrypted before 
 
 ✅ **Protects Against:**
 - Network eavesdropping (without room URL)
-- Server operator reading messages
-- Database compromise (nothing persisted)
+- Server operator reading messages (encrypted at rest in SQLite)
+- Database theft (messages are encrypted, only decryptable with room URL)
 
 ⚠️ **Does NOT Protect Against:**
 - URL compromise (room URL = decryption key)
@@ -100,8 +100,9 @@ ephemeral/
 ├── cmd/ephemeral/          # Server entry point
 ├── internal/
 │   ├── httpx/              # HTTP & WebSocket handlers
-│   ├── ws/                 # WebSocket hub & room management
-│   └── store/              # In-memory message storage
+│   ├── rooms/              # Room & message management (SQLite)
+│   └── notify/             # Optional notification hooks
+├── migrations/             # SQLite schema migrations
 ├── ui/
 │   ├── app.js              # E2EE client implementation
 │   ├── index.html          # Chat UI
@@ -129,9 +130,8 @@ See [E2EE-IMPLEMENTATION.md](E2EE-IMPLEMENTATION.md) for complete cryptographic 
 Environment variables:
 
 ```bash
-PORT=4000                    # Server port
-ROOM_TTL=24h                 # Room expiration time
-MAX_ROOM_SIZE=100            # Max messages per room (memory limit)
+EPHEMERAL_DB_PATH=/var/lib/ephemeral/data.db   # SQLite database path
+ROOM_TTL=24h                                    # Room expiration time (default: 24h)
 ```
 
 ---
@@ -149,8 +149,9 @@ MAX_ROOM_SIZE=100            # Max messages per room (memory limit)
 
 - **No forward secrecy** - Room URL compromises all messages
 - **No identity verification** - Can't prove who you're talking to
-- **Memory-only** - Server restart = all rooms lost
+- **Disk persistence** - Encrypted messages stored in SQLite until expiry
 - **Trust on first use** - No protection against MITM during setup
+- **Database forensics** - Deleted SQLite records may be recoverable with forensic tools
 
 This is **not** a Signal/Matrix replacement. It's designed for ephemeral, consensual conversations where simplicity matters more than threat-model completeness.
 
