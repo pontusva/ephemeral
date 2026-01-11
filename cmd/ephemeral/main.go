@@ -4,48 +4,20 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
-	"ephemeral/internal/notify"
-	_ "github.com/mattn/go-sqlite3"
 
 	"ephemeral/internal/config"
 	"ephemeral/internal/httpx"
+	"ephemeral/internal/migrate"
+	"ephemeral/internal/notify"
 	"ephemeral/internal/rooms"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func runMigrations(db *sql.DB) error {
-	entries, err := os.ReadDir("migrations")
-	if err != nil {
-		return err
-	}
-
-	var files []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(e.Name(), ".sql") {
-			files = append(files, filepath.Join("migrations", e.Name()))
-		}
-	}
-
-	sort.Strings(files)
-
-	for _, path := range files {
-		sqlBytes, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if _, err := db.Exec(string(sqlBytes)); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	runner := migrate.NewRunner(db, "migrations")
+	return runner.Run()
 }
 
 func main() {
