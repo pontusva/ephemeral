@@ -1,3 +1,2 @@
--- Add message_type column to support different message types (MSG, IMG_META, IMG_CHUNK, IMG_END)
-ALTER TABLE ephemeral_messages
-ADD COLUMN message_type TEXT;
+INSERT OR IGNORE INTO schema_migrations (version, name, applied_at)
+VALUES (3, 'add_message_type', strftime('%s','now'));
