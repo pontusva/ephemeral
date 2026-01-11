@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS ephemeral_messages (
   ciphertext BLOB NOT NULL,
   nonce BLOB NOT NULL,
 
-  seq INTEGER NOT NULL
+  seq INTEGER NOT NULL,
+  message_type TEXT  -- MSG, IMG_META, IMG_CHUNK, IMG_END
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_room_id

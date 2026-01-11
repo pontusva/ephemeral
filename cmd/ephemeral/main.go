@@ -12,6 +12,7 @@ import (
 	"ephemeral/internal/notify"
 	_ "github.com/mattn/go-sqlite3"
 
+	"ephemeral/internal/config"
 	"ephemeral/internal/httpx"
 	"ephemeral/internal/rooms"
 )
@@ -48,20 +49,31 @@ func runMigrations(db *sql.DB) error {
 }
 
 func main() {
-	// --- database path (explicit, systemd-safe) ---
-
-	notify.Emit("system.start", "-", "ephemeral online")
-	dbPath := os.Getenv("EPHEMERAL_DB_PATH")
-	if dbPath == "" {
-		dbPath = "/var/lib/ephemeral/data.db"
+	// Load configuration based on runtime mode
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("config error:", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	if err := cfg.Validate(); err != nil {
+		log.Fatal("config validation failed:", err)
+	}
+
+	log.Printf("starting ephemeral in %s mode", cfg.Mode)
+
+	notify.Emit("system.start", "-", "ephemeral online")
+
+	// Ensure database directory exists (important for development mode)
+	if err := cfg.EnsureDBDirectory(); err != nil {
+		log.Fatal("failed to create db directory:", err)
+	}
+
+	db, err := sql.Open("sqlite3", cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println("using sqlite db:", dbPath)
+	log.Println("using sqlite db:", cfg.DBPath)
 
 	if err := runMigrations(db); err != nil {
 		log.Fatal("migration failed:", err)
@@ -79,9 +91,10 @@ func main() {
 		}
 	}()
 
-	log.Println("listening on http://127.0.0.1:4000")
+	addr := cfg.Address()
+	log.Printf("listening on http://%s", addr)
 	log.Fatal(http.ListenAndServe(
-		"127.0.0.1:4000",
+		addr,
 		httpx.Router(db),
 	))
 }
