@@ -1,13 +1,13 @@
 # Ephemeral
 
+**End-to-end encrypted ephemeral chat with cross-device support.**
+
+Send messages and images that disappear when the room expires. Access the same conversation from any device with just the room URL.
+
 <p align="center">
   <img src="assets/create.png" width="45%" />
   <img src="assets/chat.png" width="45%" />
 </p>
-
-**End-to-end encrypted ephemeral chat with cross-device support.**
-
-Send messages and images that disappear when the room expires. Access the same conversation from any device with just the room URL.
 
 ---
 
