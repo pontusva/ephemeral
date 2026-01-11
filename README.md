@@ -156,6 +156,20 @@ This is **not** a Signal/Matrix replacement. It's designed for ephemeral, consen
 
 ---
 
+### Optional Signal Notification Hook
+
+Ephemeral can optionally emit lifecycle events to a local notification script.
+
+The hook is executed as:
+
+/usr/local/bin/ephemeral-notify.sh "<event message>"
+
+This script is not part of the repository and must be implemented by operators.
+It typically wraps tools such as signal-cli, but no credentials or phone numbers
+are ever stored in this codebase.
+
+---
+
 ## 🤝 Contributing
 
 See [E2EE-IMPLEMENTATION.md](E2EE-IMPLEMENTATION.md) for implementation details.
