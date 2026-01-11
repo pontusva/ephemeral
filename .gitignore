@@ -39,7 +39,7 @@ target/
 coverage/
 __pycache__/
 
-ephemeral
+/ephemeral
 ephemeral-test
 
 # ============================
