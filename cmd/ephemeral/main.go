@@ -4,64 +4,48 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 	"time"
-	"ephemeral/internal/notify"
-	_ "github.com/mattn/go-sqlite3"
 
+	"ephemeral/internal/config"
 	"ephemeral/internal/httpx"
+	"ephemeral/internal/migrate"
+	"ephemeral/internal/notify"
 	"ephemeral/internal/rooms"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func runMigrations(db *sql.DB) error {
-	entries, err := os.ReadDir("migrations")
-	if err != nil {
-		return err
-	}
-
-	var files []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if strings.HasSuffix(e.Name(), ".sql") {
-			files = append(files, filepath.Join("migrations", e.Name()))
-		}
-	}
-
-	sort.Strings(files)
-
-	for _, path := range files {
-		sqlBytes, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if _, err := db.Exec(string(sqlBytes)); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	runner := migrate.NewRunner(db, "migrations")
+	return runner.Run()
 }
 
 func main() {
-	// --- database path (explicit, systemd-safe) ---
-
-	notify.Emit("system.start", "-", "ephemeral online")
-	dbPath := os.Getenv("EPHEMERAL_DB_PATH")
-	if dbPath == "" {
-		dbPath = "/var/lib/ephemeral/data.db"
+	// Load configuration based on runtime mode
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal("config error:", err)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
+	if err := cfg.Validate(); err != nil {
+		log.Fatal("config validation failed:", err)
+	}
+
+	log.Printf("starting ephemeral in %s mode", cfg.Mode)
+
+	notify.Emit("system.start", "-", "ephemeral online")
+
+	// Ensure database directory exists (important for development mode)
+	if err := cfg.EnsureDBDirectory(); err != nil {
+		log.Fatal("failed to create db directory:", err)
+	}
+
+	db, err := sql.Open("sqlite3", cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Println("using sqlite db:", dbPath)
+	log.Println("using sqlite db:", cfg.DBPath)
 
 	if err := runMigrations(db); err != nil {
 		log.Fatal("migration failed:", err)
@@ -79,9 +63,10 @@ func main() {
 		}
 	}()
 
-	log.Println("listening on http://127.0.0.1:4000")
+	addr := cfg.Address()
+	log.Printf("listening on http://%s", addr)
 	log.Fatal(http.ListenAndServe(
-		"127.0.0.1:4000",
+		addr,
 		httpx.Router(db),
 	))
 }

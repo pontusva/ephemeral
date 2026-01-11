@@ -42,6 +42,7 @@ __pycache__/
 
 /ephemeral
 ephemeral-test
+/bin/
 
 # ============================
 # OS junk

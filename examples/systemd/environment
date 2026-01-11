@@ -1,0 +1,19 @@
+# Ephemeral Production Configuration
+# This file should be placed at /etc/ephemeral/environment
+
+# Runtime mode: production or development
+EPHEMERAL_MODE=production
+
+# Network configuration
+# For production behind a reverse proxy, typically bind to localhost
+EPHEMERAL_HOST=127.0.0.1
+EPHEMERAL_PORT=4000
+
+# Database configuration
+EPHEMERAL_DB_PATH=/var/lib/ephemeral/data.db
+
+# UI directory (default: ui)
+# EPHEMERAL_UI_DIR=/opt/ephemeral/ui
+
+# Log level: debug, info, warn, error
+EPHEMERAL_LOG_LEVEL=info

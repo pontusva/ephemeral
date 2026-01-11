@@ -26,13 +26,23 @@ Send messages and images that disappear when the room expires. Access the same c
 
 ## 🚀 Quick Start
 
-### Run the Server
+### Local Development Mode
+
+The easiest way to run Ephemeral on your local machine:
 
 ```bash
+# Run directly with Go
 go run ./cmd/ephemeral
+
+# Or build and run the binary
+go build -o bin/ephemeral ./cmd/ephemeral
+./bin/ephemeral
 ```
 
-Server starts on `http://127.0.0.1:4000`
+By default, Ephemeral starts in **development mode** with:
+- Server on `http://127.0.0.1:4000`
+- SQLite database at `./data/dev.db` (auto-created)
+- Debug logging enabled
 
 ### Create a Room
 
@@ -127,12 +137,65 @@ See [E2EE-IMPLEMENTATION.md](E2EE-IMPLEMENTATION.md) for complete cryptographic 
 
 ## 🛠️ Configuration
 
-Environment variables:
+### Runtime Modes
+
+Ephemeral supports two runtime modes controlled by the `EPHEMERAL_MODE` environment variable:
+
+#### Development Mode (Default)
 
 ```bash
-EPHEMERAL_DB_PATH=/var/lib/ephemeral/data.db   # SQLite database path
-ROOM_TTL=24h                                    # Room expiration time (default: 24h)
+# Explicit development mode
+EPHEMERAL_MODE=development go run ./cmd/ephemeral
+
+# Or just run without setting EPHEMERAL_MODE (defaults to development)
+go run ./cmd/ephemeral
 ```
+
+**Development defaults:**
+- Host: `127.0.0.1`
+- Port: `4000`
+- Database: `./data/dev.db` (auto-created)
+- Log level: `debug`
+
+#### Production Mode
+
+Production mode requires **explicit configuration** via environment variables:
+
+```bash
+EPHEMERAL_MODE=production \
+EPHEMERAL_HOST=127.0.0.1 \
+EPHEMERAL_PORT=4000 \
+EPHEMERAL_DB_PATH=/var/lib/ephemeral/data.db \
+./bin/ephemeral
+```
+
+### Environment Variables
+
+| Variable | Required | Default (dev) | Default (prod) | Description |
+|----------|----------|---------------|----------------|-------------|
+| `EPHEMERAL_MODE` | No | `development` | - | Runtime mode: `development` or `production` |
+| `EPHEMERAL_HOST` | In prod | `127.0.0.1` | *none* | Host to bind server to |
+| `EPHEMERAL_PORT` | In prod | `4000` | *none* | Port to bind server to |
+| `EPHEMERAL_DB_PATH` | In prod | `./data/dev.db` | *none* | SQLite database file path |
+| `EPHEMERAL_UI_DIR` | No | `ui` | `ui` | Directory containing UI files |
+| `EPHEMERAL_LOG_LEVEL` | No | `debug` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+
+### Production Deployment
+
+For production deployment with systemd, see the example configuration files:
+
+- [examples/systemd/ephemeral.service](examples/systemd/ephemeral.service) - systemd unit file
+- [examples/systemd/environment](examples/systemd/environment) - environment configuration
+
+**Typical production setup:**
+
+1. Place binary at `/usr/local/bin/ephemeral`
+2. Create config at `/etc/ephemeral/environment`
+3. Create systemd unit at `/etc/systemd/system/ephemeral.service`
+4. Ensure database directory exists: `mkdir -p /var/lib/ephemeral`
+5. Start service: `systemctl start ephemeral`
+
+Production deployments should run behind a reverse proxy (nginx, Caddy) for TLS termination.
 
 ---
 
