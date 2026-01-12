@@ -235,7 +235,7 @@ are ever stored in this codebase.
 ---
 
 ## 🤝 Contributing
-
+See [DEVLOPMENT.md](DEVELOPMENT.md) for getting started locally
 See [E2EE-IMPLEMENTATION.md](E2EE-IMPLEMENTATION.md) for implementation details.
 
 ---
