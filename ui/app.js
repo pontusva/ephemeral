@@ -862,6 +862,9 @@
           addWarningLog(`Connection lost at chunk ${i + 1}/${numChunks}`);
           return false;
         }
+
+        // Tiny delay to prevent overwhelming server DB transactions
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
       // Final connection check
@@ -1123,7 +1126,7 @@
     // Wait if buffer is getting large (> 512KB - allowing ~32 16KB chunks in flight)
     const MAX_BUFFER = 512 * 1024;
     let iterations = 0;
-    const MAX_ITERATIONS = 200; // 1 second timeout (200 * 5ms)
+    const MAX_ITERATIONS = 1000; // 5 second timeout (1000 * 5ms)
 
     while (ws.bufferedAmount > MAX_BUFFER) {
       await new Promise((resolve) => setTimeout(resolve, 5));
