@@ -25,7 +25,22 @@
   // ROUTING: Check if this is a room link or should redirect to create page
   // =============================================================================
 
-  const roomToken = location.hash.slice(1);
+  const hash = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+  const hashParts = hash.split("&");
+  const roomToken = hashParts[0];
+  const urlHasPriv = hash.includes("&priv=");
+  let privParam = null;
+  for (let i = 1; i < hashParts.length; i++) {
+    const part = hashParts[i];
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    const key = part.slice(0, eq);
+    const value = part.slice(eq + 1);
+    if (key === "priv") {
+      privParam = value ? decodeURIComponent(value) : null;
+      break;
+    }
+  }
   if (!roomToken) {
     // No token in hash - redirect to create page
     window.location.href = "/create-room";
@@ -108,6 +123,8 @@
   // Crypto state
   let sodium = null;
   let myKeypair = null;
+  let localPublicKey = null;
+  let localPublicKeyB64 = null;
   let peerPublicKey = null;
   let msgKey = null;
 
@@ -150,6 +167,66 @@
   function debugLog(line) {
     if (DEBUG) console.log("[debug]", line);
   }
+
+  function getLocalPublicKeyB64() {
+    if (localPublicKeyB64) return localPublicKeyB64;
+    if (sodium && myKeypair && myKeypair.publicKey) {
+      localPublicKeyB64 = sodium.to_base64(myKeypair.publicKey);
+    }
+    return localPublicKeyB64;
+  }
+
+  function isLocalSender(senderPubB64) {
+    const localB64 = localPublicKeyB64;
+    if (!localB64 || !senderPubB64) return null;
+    return senderPubB64 === localB64;
+  }
+
+  function getSenderLabel(senderPubB64) {
+    const isLocal = isLocalSender(senderPubB64);
+    if (isLocal === null) return "user_? / ?";
+    const localLabel = urlHasPriv ? "user_2 / me" : "user_1 / me";
+    const remoteLabel = urlHasPriv ? "user_1 / them" : "user_2 / them";
+    return isLocal ? localLabel : remoteLabel;
+  }
+
+  function extractSenderPublicKey(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    if (
+      obj.signature &&
+      typeof obj.signature === "object" &&
+      typeof obj.signature.publicKey === "string"
+    ) {
+      return obj.signature.publicKey;
+    }
+    if (typeof obj.pub === "string") return obj.pub;
+    return null;
+  }
+
+  function updateChatLine(line) {
+    const text = line.dataset.text || "";
+    const suffix = line.dataset.suffix || "";
+    const senderPub = line.dataset.sender || "";
+    const label = getSenderLabel(senderPub);
+    line.textContent = label + ": " + text + (suffix ? " " + suffix : "");
+  }
+
+  function addChatLine(text, senderPubB64, suffix = "") {
+    const line = document.createElement("div");
+    line.dataset.text = text;
+    line.dataset.sender = senderPubB64 || "";
+    if (suffix) line.dataset.suffix = suffix;
+    updateChatLine(line);
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function refreshChatLabels() {
+    if (!log) return;
+    const lines = log.querySelectorAll("div[data-text]");
+    lines.forEach(updateChatLine);
+  }
+
 
   // =============================================================================
   // UI STATE MANAGEMENT
@@ -370,6 +447,28 @@
     if (data.text.length > MAX_PLAINTEXT_CHARS) {
       throw new Error("Plaintext message exceeds size limit");
     }
+    if (data.signature !== undefined) {
+      if (!data.signature || typeof data.signature !== "object") {
+        throw new Error("Invalid 'signature' field");
+      }
+      if (typeof data.signature.publicKey !== "string") {
+        throw new Error("Invalid 'signature.publicKey' field");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(
+          data.signature.publicKey,
+          X25519_PUBKEY_BYTES,
+          "CHAT.signature.publicKey"
+        );
+      }
+    } else if (data.pub !== undefined) {
+      if (typeof data.pub !== "string") {
+        throw new Error("Invalid 'pub' field");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(data.pub, X25519_PUBKEY_BYTES, "CHAT.pub");
+      }
+    }
     return true;
   }
 
@@ -378,6 +477,26 @@
     if (payload.type !== "IMG_META") throw new Error("Wrong inner type");
     if (!payload.id || typeof payload.id !== "string")
       throw new Error("Missing id");
+    if (payload.signature !== undefined) {
+      if (!payload.signature || typeof payload.signature !== "object") {
+        throw new Error("Invalid signature");
+      }
+      if (typeof payload.signature.publicKey !== "string") {
+        throw new Error("Invalid signature.publicKey");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(
+          payload.signature.publicKey,
+          X25519_PUBKEY_BYTES,
+          "IMG_META.signature.publicKey"
+        );
+      }
+    } else if (payload.pub !== undefined) {
+      if (typeof payload.pub !== "string") throw new Error("Invalid pub");
+      if (sodium) {
+        decodeAndValidateBase64(payload.pub, X25519_PUBKEY_BYTES, "IMG_META.pub");
+      }
+    }
     if (!payload.mime || !ALLOWED_IMAGE_MIMES.has(payload.mime)) {
       throw new Error("Invalid or disallowed MIME type");
     }
@@ -500,12 +619,21 @@
 
   // Legacy text-only encryption (kept for compatibility)
   function encryptMessage(plaintext) {
-    return encryptPayload({ text: plaintext });
+    return encryptPayload({
+      text: plaintext,
+      signature: { publicKey: getLocalPublicKeyB64() },
+    });
   }
 
   function decryptMessage(nonceB64, ciphertextB64) {
     const payload = decryptPayload(nonceB64, ciphertextB64);
-    return payload.text || "";
+    if (!payload || typeof payload !== "object") {
+      return { text: "", pub: null };
+    }
+    return {
+      text: typeof payload.text === "string" ? payload.text : "",
+      pub: extractSenderPublicKey(payload),
+    };
   }
 
   // =============================================================================
@@ -520,7 +648,7 @@
     imageBytes,
     fileName,
     fileSize,
-    prefix = "> "
+    senderPubB64 = null
   ) {
     try {
       const blob =
@@ -530,16 +658,16 @@
       const objectUrl = URL.createObjectURL(blob);
 
       // Add text log
-      addLog(`${prefix}[image] ${fileName}`);
+      addChatLine(`[image] ${fileName}`, senderPubB64);
 
+      const isLocal = isLocalSender(senderPubB64);
       // Create container for image and controls
       const container = document.createElement("div");
       container.style.marginTop = "8px";
       container.style.marginBottom = "8px";
       container.style.padding = "8px";
-      container.style.backgroundColor = prefix.includes("<")
-        ? "#e8f5e9"
-        : "#f0f0f0";
+      container.style.backgroundColor =
+        isLocal === null ? "#f0f0f0" : isLocal ? "#e8f5e9" : "#f0f0f0";
       container.style.borderRadius = "8px";
       container.style.border = "1px solid #ccc";
 
@@ -659,6 +787,7 @@
         size: bytes.length,
         chunkSize: chunkSize,
         chunks: numChunks,
+        signature: { publicKey: getLocalPublicKeyB64() },
       };
 
       const { nonce: metaNonce, ciphertext: metaCipher } =
@@ -755,7 +884,13 @@
       addSystemLog("Image sent");
 
       // Display preview for sender too
-      displayImagePreview(file, bytes, file.name, bytes.length, "< ");
+      displayImagePreview(
+        file,
+        bytes,
+        file.name,
+        bytes.length,
+        getLocalPublicKeyB64()
+      );
 
       return true;
     } catch (err) {
@@ -895,7 +1030,7 @@
         imageBytes,
         transfer.meta.name,
         transfer.meta.size,
-        "> "
+        extractSenderPublicKey(transfer.meta)
       );
 
       // Cleanup
@@ -996,7 +1131,7 @@
 
     sendEnvelope("HELLO", {
       v: PROTOCOL_VERSION,
-      pub: sodium.to_base64(myKeypair.publicKey),
+      pub: getLocalPublicKeyB64(),
     });
 
     if (handshakeState === HandshakeState.INIT) {
@@ -1039,7 +1174,7 @@
         n: nonce,
         c: ciphertext,
       });
-      addLog("< " + text);
+      addChatLine(text, getLocalPublicKeyB64());
       return true;
     } catch (err) {
       addLog("[error] Encryption failed: " + err.message, true);
@@ -1059,8 +1194,9 @@
       return false;
     }
 
-    sendEnvelope("CHAT", { text: text });
-    addLog("< " + text + " [plaintext]");
+    const senderPub = getLocalPublicKeyB64();
+    sendEnvelope("CHAT", { text: text, signature: { publicKey: senderPub } });
+    addChatLine(text, senderPub, "[plaintext]");
     return true;
   }
 
@@ -1068,7 +1204,7 @@
     try {
       validateHelloMessage(data);
 
-      if (myKeypair && sodium.to_base64(myKeypair.publicKey) === data.pub) {
+      if (getLocalPublicKeyB64() === data.pub) {
         debugLog("Ignoring own HELLO");
         return;
       }
@@ -1131,11 +1267,11 @@
       if (typeof data.seq === "number" && data.seq > lastSeenSeq) {
         lastSeenSeq = data.seq;
       }
-      const plaintext = decryptMessage(data.n, data.c);
-      addLog("> " + plaintext);
+      const payload = decryptMessage(data.n, data.c);
+      addChatLine(payload.text, payload.pub);
     } catch (err) {
       addWarningLog("Failed to decrypt message: " + err.message);
-      addLog("> [encrypted message - decryption failed]");
+      addChatLine("[encrypted message - decryption failed]", null);
     }
   }
 
@@ -1149,7 +1285,7 @@
         return;
       }
 
-      addLog("> " + data.text + " [plaintext]");
+      addChatLine(data.text, extractSenderPublicKey(data), "[plaintext]");
     } catch (err) {
       addWarningLog("Invalid CHAT message: " + err.message);
     }
@@ -1285,6 +1421,7 @@
     }
   };
 
+
   // Image button
   if (imageButton) {
     imageButton.onclick = function () {
@@ -1363,8 +1500,39 @@
 
       addSystemLog("Cryptography library loaded");
 
-      myKeypair = sodium.crypto_kx_keypair();
-      addSystemLog("Generated ephemeral keypair");
+      if (privParam) {
+        try {
+          const priv = sodium.from_base64(privParam);
+          if (priv.length !== 32) {
+            throw new Error("Invalid private key length");
+          }
+          if (typeof sodium.crypto_kx_seed_keypair === "function") {
+            myKeypair = sodium.crypto_kx_seed_keypair(priv);
+          } else if (typeof sodium.crypto_scalarmult_base === "function") {
+            myKeypair = {
+              publicKey: sodium.crypto_scalarmult_base(priv),
+              privateKey: priv,
+            };
+          } else {
+            throw new Error("No key derivation function available");
+          }
+          addSystemLog("Imported keypair from URL");
+        } catch (err) {
+          addWarningLog("Invalid priv param, generating fresh keypair");
+          debugLog("priv param error: " + err.message);
+          myKeypair = sodium.crypto_kx_keypair();
+          addSystemLog("Generated ephemeral keypair");
+        }
+      } else {
+        const seed = sodium.crypto_generichash(32, "creator|" + roomToken);
+        myKeypair = sodium.crypto_kx_seed_keypair(seed);
+        sodium.memzero(seed);
+        addSystemLog("Derived creator keypair");
+      }
+
+      localPublicKey = myKeypair.publicKey;
+      localPublicKeyB64 = sodium.to_base64(localPublicKey);
+      refreshChatLabels();
 
       // Derive deterministic room key (allows cross-device + replay)
       if (deriveRoomKey()) {

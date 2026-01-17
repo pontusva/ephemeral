@@ -305,6 +305,14 @@
         margin-top: 12px;
       }
 
+      .link-label {
+        margin-top: 14px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
       .link-input {
         flex: 1;
         padding: 12px 14px;
@@ -343,6 +351,53 @@
 
       .copy-button.copied {
         background: var(--slime);
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+
+      .modal {
+        width: min(520px, 92vw);
+        background: #0c0d0f;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .modal h3 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .modal p {
+        margin: 0 0 12px;
+        line-height: 1.4;
+      }
+
+      .modal ul {
+        margin: 0 0 12px;
+        padding-left: 20px;
+      }
+
+      .modal-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .modal-actions button {
+        flex: 1;
+      }
+
+      .hidden {
+        display: none;
       }
 
       .expiry-info {
@@ -516,6 +571,7 @@
 
       <div class="result" id="result">
         <h3>✓ Room created</h3>
+        <div class="link-label">Creator link (user_1)</div>
         <div class="link-container">
           <input
             type="text"
@@ -528,6 +584,23 @@
             Copy
           </button>
         </div>
+        <div class="link-label">Invitee link (user_2, advanced)</div>
+        <div class="link-container">
+          <input
+            type="text"
+            class="link-input"
+            id="inviteeLink"
+            readonly
+            onclick="this.select()"
+          />
+          <button
+            class="copy-button"
+            id="inviteeCopyBtn"
+            onclick="openInviteeModal()"
+          >
+            Copy
+          </button>
+        </div>
         <div class="expiry-info" id="expiryInfo"></div>
       </div>
 
@@ -536,6 +609,35 @@
       <div class="tag">encrypted with <span>♥</span> // ephemeral</div>
     </div>
 
+    <div
+      id="invitee-modal"
+      class="modal-backdrop hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+    >
+      <div class="modal">
+        <h3>Share invitee identity (advanced)</h3>
+        <p>
+          This link contains a private key that defines a separate invitee identity for this room.
+          Anyone who opens it will be that participant (user_2).
+        </p>
+        <ul>
+          <li>Treat this like a password.</li>
+          <li>Do not share it unless you trust the recipient.</li>
+        </ul>
+        <label>
+          <input type="checkbox" id="invitee-confirm" />
+          I understand that this link gives full control of the invitee identity.
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="invitee-copy" disabled>Copy invitee link</button>
+          <button type="button" id="invitee-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="vendor/sodium.js"></script>
     <script>
       function updateSelection(radio) {
         document.querySelectorAll(".radio-option").forEach((option) => {
@@ -543,6 +645,8 @@
         });
         radio.parentElement.classList.add("selected");
       }
+
+      let inviteeLinkValue = "";
 
       document
         .getElementById("createForm")
@@ -575,9 +679,25 @@
 
             const data = await response.json();
             const fullUrl = window.location.origin + data.url;
+            const roomUrl = new URL(fullUrl);
+            const roomToken = roomUrl.hash.startsWith("#")
+              ? roomUrl.hash.slice(1)
+              : "";
 
             // Show result
             document.getElementById("roomLink").value = fullUrl;
+
+            if (!window.sodium) {
+              throw new Error("libsodium not loaded");
+            }
+            await window.sodium.ready;
+            const inviteeKeypair = window.sodium.crypto_kx_keypair();
+            const privB64 = window.sodium.to_base64(inviteeKeypair.privateKey);
+            inviteeLinkValue = `${roomUrl.origin}${roomUrl.pathname}#${roomToken}&priv=${encodeURIComponent(
+              privB64
+            )}`;
+            document.getElementById("inviteeLink").value = inviteeLinkValue;
+
             document.getElementById("expiryInfo").textContent =
               "🕒 Expires: " + formatExpiry(data.expires_at);
             result.classList.add("show");
@@ -586,6 +706,9 @@
             const copyBtn = document.getElementById("copyBtn");
             copyBtn.textContent = "Copy";
             copyBtn.classList.remove("copied");
+            const inviteeCopyBtn = document.getElementById("inviteeCopyBtn");
+            inviteeCopyBtn.textContent = "Copy";
+            inviteeCopyBtn.classList.remove("copied");
           } catch (err) {
             error.textContent = "⚠ Failed to create room. Please try again.";
             error.classList.add("show");
@@ -610,6 +733,64 @@
           copyBtn.classList.remove("copied");
         }, 2000);
       }
+
+      function copyToClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          return navigator.clipboard.writeText(text);
+        }
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return Promise.resolve();
+      }
+
+      function openInviteeModal() {
+        const modal = document.getElementById("invitee-modal");
+        const confirm = document.getElementById("invitee-confirm");
+        const copyBtn = document.getElementById("invitee-copy");
+        confirm.checked = false;
+        copyBtn.disabled = true;
+        modal.classList.remove("hidden");
+        modal.setAttribute("aria-hidden", "false");
+      }
+
+      function closeInviteeModal() {
+        const modal = document.getElementById("invitee-modal");
+        modal.classList.add("hidden");
+        modal.setAttribute("aria-hidden", "true");
+      }
+
+      document
+        .getElementById("invitee-confirm")
+        .addEventListener("change", (e) => {
+          document.getElementById("invitee-copy").disabled = !e.target.checked;
+        });
+
+      document
+        .getElementById("invitee-copy")
+        .addEventListener("click", async () => {
+          if (!inviteeLinkValue) return;
+          await copyToClipboard(inviteeLinkValue);
+          closeInviteeModal();
+          const inviteeCopyBtn = document.getElementById("inviteeCopyBtn");
+          inviteeCopyBtn.textContent = "Copied!";
+          inviteeCopyBtn.classList.add("copied");
+          setTimeout(() => {
+            inviteeCopyBtn.textContent = "Copy";
+            inviteeCopyBtn.classList.remove("copied");
+          }, 2000);
+        });
+
+      document
+        .getElementById("invitee-cancel")
+        .addEventListener("click", () => {
+          closeInviteeModal();
+        });
 
       function formatExpiry(isoString) {
         const date = new Date(isoString);
