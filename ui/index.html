@@ -327,6 +327,50 @@
         color: var(--slime);
       }
 
+      /* Progress Bar Styles */
+      #progress-area {
+        margin-bottom: 16px;
+      }
+
+      .progress-wrapper {
+        background: var(--void-light);
+        border: 1px solid var(--smoke);
+        padding: 12px;
+        border-radius: 4px;
+        margin-bottom: 8px;
+        animation: slideDown 0.3s ease-out;
+      }
+
+      @keyframes slideDown {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .progress-info {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        margin-bottom: 6px;
+        color: var(--ash);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .progress-bar-container {
+        height: 4px;
+        background: var(--void-lighter);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .progress-bar-fill {
+        height: 100%;
+        background: var(--slime);
+        width: 0%;
+        transition: width 0.2s ease;
+        box-shadow: 0 0 10px var(--slime-glow);
+      }
+
     </style>
   </head>
   <body>
@@ -349,6 +393,7 @@
       <!-- E2EE Status Indicator -->
       <div id="e2ee-status" class="banner">🔒 End-to-end encryption active</div>
 
+      <div id="progress-area"></div>
       <div id="log"></div>
 
       <form id="send">

@@ -119,6 +119,7 @@
   const expiryBanner = document.getElementById("expiry-banner");
   const expiryText = document.getElementById("expiry-text");
   const destroyButton = document.getElementById("destroy-btn");
+  const progressArea = document.getElementById("progress-area");
 
   // Crypto state
   let sodium = null;
@@ -237,6 +238,56 @@
     if (!log) return;
     const lines = log.querySelectorAll("div[data-text]");
     lines.forEach(updateChatLine);
+  }
+
+  // =============================================================================
+  // UI UTILITIES - PROGRESS BARS
+  // =============================================================================
+
+  function updateProgressBar(id, progress, label) {
+    if (!progressArea) return;
+
+    let wrapper = document.getElementById("progress-" + id);
+    if (!wrapper) {
+      wrapper = document.createElement("div");
+      wrapper.id = "progress-" + id;
+      wrapper.className = "progress-wrapper";
+      wrapper.innerHTML = `
+        <div class="progress-info">
+          <span class="progress-label"></span>
+          <span class="progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill"></div>
+        </div>
+      `;
+      progressArea.appendChild(wrapper);
+    }
+
+    const labelEl = wrapper.querySelector(".progress-label");
+    const percentEl = wrapper.querySelector(".progress-percent");
+    const fillEl = wrapper.querySelector(".progress-bar-fill");
+
+    const displayLabel = historyReplayActive ? `[Replaying] ${label}` : label;
+    labelEl.textContent = displayLabel;
+
+    const percent = Math.min(100, Math.max(0, Math.round(progress)));
+    percentEl.textContent = percent + "%";
+    fillEl.style.width = percent + "%";
+  }
+
+  function removeProgressBar(id) {
+    const wrapper = document.getElementById("progress-" + id);
+    if (wrapper) {
+      wrapper.style.opacity = "0";
+      wrapper.style.transform = "translateY(-10px)";
+      wrapper.style.transition = "all 0.3s ease";
+      setTimeout(() => {
+        if (wrapper.parentNode) {
+          wrapper.remove();
+        }
+      }, 300);
+    }
   }
 
 
@@ -814,8 +865,11 @@
         }))
       ) {
         addWarningLog("Failed to send IMG_META (connection lost)");
+        removeProgressBar(transferId);
         return false;
       }
+
+      updateProgressBar(transferId, 0, `Uploading: ${file.name}`);
 
       // Wait for WebSocket buffer to drain before sending chunks
       if (!(await waitForBufferDrain())) {
@@ -845,8 +899,7 @@
         const { nonce: chunkNonce, ciphertext: chunkCipher } =
           encryptPayload(chunkPayload);
 
-        if (
-          !(await sendEnvelope("IMG_CHUNK", {
+        if (!(await sendEnvelope("IMG_CHUNK", {
             v: PROTOCOL_VERSION,
             seq: nextSeq(),
             n: chunkNonce,
@@ -854,12 +907,16 @@
           }))
         ) {
           addWarningLog(`Failed to send chunk ${i}/${numChunks}`);
+          removeProgressBar(transferId);
           return false;
         }
+
+        updateProgressBar(transferId, ((i + 1) / numChunks) * 100, `Uploading: ${file.name}`);
 
         // Wait for buffer to drain before next chunk
         if (!(await waitForBufferDrain())) {
           addWarningLog(`Connection lost at chunk ${i + 1}/${numChunks}`);
+          removeProgressBar(transferId);
           return false;
         }
 
@@ -890,9 +947,11 @@
         }))
       ) {
         addWarningLog("Failed to send IMG_END");
+        removeProgressBar(transferId);
         return false;
       }
 
+      removeProgressBar(transferId);
       addSystemLog("Image sent");
 
       // Display preview for sender too
@@ -907,6 +966,7 @@
       return true;
     } catch (err) {
       addLog("[error] Failed to send image: " + err.message, true);
+      if (typeof transferId !== 'undefined') removeProgressBar(transferId);
       return false;
     }
   }
@@ -946,6 +1006,8 @@
           1
         )}KB, ${payload.chunks} chunks)`
       );
+
+      updateProgressBar(payload.id, 0, `Downloading: ${payload.name}`);
     } catch (err) {
       addWarningLog("Invalid IMG_META: " + err.message);
     }
@@ -995,6 +1057,12 @@
         resetImageTransferIdleTimer(payload.id);
       }
 
+      updateProgressBar(
+        payload.id,
+        (transfer.chunks.size / transfer.meta.chunks) * 100,
+        `Downloading: ${transfer.meta.name}`
+      );
+
       debugLog(`Chunk ${payload.i + 1}/${transfer.meta.chunks} received`);
     } catch (err) {
       addWarningLog("Invalid IMG_CHUNK: " + err.message);
@@ -1024,6 +1092,7 @@
         addWarningLog(
           `Incomplete image: ${transfer.chunks.size}/${transfer.meta.chunks} chunks`
         );
+        removeProgressBar(payload.id);
         incomingImages.delete(payload.id);
         return;
       }
@@ -1055,6 +1124,7 @@
       );
 
       // Cleanup
+      removeProgressBar(payload.id);
       incomingImages.delete(payload.id);
       addSystemLog("Image received");
     } catch (err) {
@@ -1076,6 +1146,7 @@
     for (const [id, transfer] of incomingImages.entries()) {
       if (now - transfer.startTime > IMAGE_TRANSFER_TIMEOUT) {
         addWarningLog("Image transfer timeout: " + transfer.meta.name);
+        removeProgressBar(id);
         incomingImages.delete(id);
       }
     }
