@@ -135,6 +135,8 @@
   let ws = null;
   let outboundSeq = 0;
   let lastSeenSeq = 0;
+  let historyReplayActive = false;
+  let replayTimer = null;
 
   // Room expiry state
   let roomExpiresAt = null;
@@ -166,6 +168,16 @@
 
   function debugLog(line) {
     if (DEBUG) console.log("[debug]", line);
+  }
+
+  function noteReplayActivity() {
+    historyReplayActive = true;
+    if (replayTimer) {
+      clearTimeout(replayTimer);
+    }
+    replayTimer = setTimeout(() => {
+      historyReplayActive = false;
+    }, 200);
   }
 
   function getLocalPublicKeyB64() {
@@ -945,6 +957,12 @@
   function handleImageChunk(data) {
     try {
       validateEncryptedEnvelope(data);
+      // Detect replay FIRST
+      if (typeof data.seq === "number" && data.seq <= lastSeenSeq) {
+        noteReplayActivity();
+      }
+
+      // THEN update lastSeenSeq for new messages
       if (typeof data.seq === "number" && data.seq > lastSeenSeq) {
         lastSeenSeq = data.seq;
       }
@@ -973,6 +991,9 @@
       const chunkBytes = sodium.from_base64(payload.b);
       transfer.chunks.set(payload.i, chunkBytes);
       transfer.receivedBytes += chunkBytes.length;
+      if (!historyReplayActive) {
+        resetImageTransferIdleTimer(payload.id);
+      }
 
       debugLog(`Chunk ${payload.i + 1}/${transfer.meta.chunks} received`);
     } catch (err) {
@@ -1044,6 +1065,12 @@
   /**
    * Garbage collect incomplete image transfers (timeout)
    */
+  function resetImageTransferIdleTimer(transferId) {
+    const transfer = incomingImages.get(transferId);
+    if (!transfer) return;
+    transfer.startTime = Date.now();
+  }
+
   function cleanupStaleImageTransfers() {
     const now = Date.now();
     for (const [id, transfer] of incomingImages.entries()) {
@@ -1321,6 +1348,15 @@
       } catch (err) {
         addWarningLog("Invalid envelope: " + err.message);
         return;
+      }
+      
+      const replaySeq =
+        envelope.d && typeof envelope.d.seq === "number"
+          ? envelope.d.seq
+          : null;
+
+      if (replaySeq !== null && replaySeq <= lastSeenSeq) {
+        noteReplayActivity();
       }
 
       switch (envelope.t) {

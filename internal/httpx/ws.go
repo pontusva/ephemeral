@@ -142,7 +142,11 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 				if err != nil {
 					return err
 				}
-				conn.Enqueue(payload)
+				conn.EnqueueReliable(payload)
+
+				// Pace history replay to avoid overwhelming the client socket
+				// and triggering disconnects or buffer overflows.
+				time.Sleep(5 * time.Millisecond)
 			}
 
 			historySent = true
