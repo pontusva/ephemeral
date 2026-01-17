@@ -65,8 +65,8 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 		if err != nil {
 			return
 		}
-		// Set read limit to 1MB to handle large encrypted image chunks
-		wsconn.SetReadLimit(1024 * 1024) // 1 MB
+		// Set read limit to 10MB to handle large encrypted image chunks
+		wsconn.SetReadLimit(8 * 1024 * 1024) // 10 MB
 		defer wsconn.Close(websocket.StatusNormalClosure, "")
 
 		conn := ws.NewConn()

@@ -794,12 +794,12 @@
         encryptPayload(metaPayload);
 
       if (
-        !sendEnvelope("IMG_META", {
+        !(await sendEnvelope("IMG_META", {
           v: PROTOCOL_VERSION,
           seq: nextSeq(),
           n: metaNonce,
           c: metaCipher,
-        })
+        }))
       ) {
         addWarningLog("Failed to send IMG_META (connection lost)");
         return false;
@@ -834,12 +834,12 @@
           encryptPayload(chunkPayload);
 
         if (
-          !sendEnvelope("IMG_CHUNK", {
+          !(await sendEnvelope("IMG_CHUNK", {
             v: PROTOCOL_VERSION,
             seq: nextSeq(),
             n: chunkNonce,
             c: chunkCipher,
-          })
+          }))
         ) {
           addWarningLog(`Failed to send chunk ${i}/${numChunks}`);
           return false;
@@ -870,12 +870,12 @@
         encryptPayload(endPayload);
 
       if (
-        !sendEnvelope("IMG_END", {
+        !(await sendEnvelope("IMG_END", {
           v: PROTOCOL_VERSION,
           seq: nextSeq(),
           n: endNonce,
           c: endCipher,
-        })
+        }))
       ) {
         addWarningLog("Failed to send IMG_END");
         return false;
@@ -1061,7 +1061,7 @@
   // WEBSOCKET MESSAGE HANDLERS
   // =============================================================================
 
-  function sendEnvelope(type, data) {
+  async function sendEnvelope(type, data) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       addWarningLog("Cannot send (not connected)");
       return false;
@@ -1123,13 +1123,13 @@
     return true;
   }
 
-  function sendHello() {
+  async function sendHello() {
     if (!myKeypair) {
       addWarningLog("Cannot send HELLO (no keypair)");
       return;
     }
 
-    sendEnvelope("HELLO", {
+    await sendEnvelope("HELLO", {
       v: PROTOCOL_VERSION,
       pub: getLocalPublicKeyB64(),
     });
@@ -1148,15 +1148,15 @@
     return outboundSeq;
   }
 
-  function sendReady() {
-    sendEnvelope("READY", {
+  async function sendReady() {
+    await sendEnvelope("READY", {
       v: PROTOCOL_VERSION,
       lastSeenSeq: lastSeenSeq,
     });
     debugLog("Sent READY with lastSeenSeq=" + lastSeenSeq);
   }
 
-  function sendEncryptedMessage(text) {
+  async function sendEncryptedMessage(text) {
     if (handshakeState !== HandshakeState.E2EE_ACTIVE) {
       addWarningLog("Cannot send encrypted (E2EE not active)");
       return false;
@@ -1168,7 +1168,7 @@
         outboundSeq = lastSeenSeq;
       }
       outboundSeq += 1;
-      sendEnvelope("MSG", {
+      await sendEnvelope("MSG", {
         v: PROTOCOL_VERSION,
         seq: outboundSeq,
         n: nonce,
@@ -1182,7 +1182,7 @@
     }
   }
 
-  function sendPlaintextMessage(text) {
+  async function sendPlaintextMessage(text) {
     if (handshakeState === HandshakeState.E2EE_ACTIVE) {
       addWarningLog("⛔ Plaintext blocked (E2EE is active)");
       addSystemLog("Refusing to send plaintext in E2EE mode");
@@ -1195,12 +1195,12 @@
     }
 
     const senderPub = getLocalPublicKeyB64();
-    sendEnvelope("CHAT", { text: text, signature: { publicKey: senderPub } });
+    await sendEnvelope("CHAT", { text: text, signature: { publicKey: senderPub } });
     addChatLine(text, senderPub, "[plaintext]");
     return true;
   }
 
-  function handleHello(data) {
+  async function handleHello(data) {
     try {
       validateHelloMessage(data);
 
@@ -1234,13 +1234,13 @@
 
       // Respond to HELLO if we haven't yet
       if (handshakeState === HandshakeState.INIT || handshakeState === HandshakeState.GOT_PEER_HELLO) {
-        sendHello();
+        await sendHello();
       }
 
       // Key already derived from room token - activate E2EE and signal ready
       if (myKeypair && peerPublicKey && msgKey) {
         setE2EEActive();
-        sendReady();
+        await sendReady();
       }
     } catch (err) {
       addWarningLog("Invalid HELLO message: " + err.message);
@@ -1301,7 +1301,7 @@
     addWarningLog(`[server error] ${code}: ${message}`);
   }
 
-  function handleMessage(event) {
+  async function handleMessage(event) {
     try {
       if (event.data.length > MAX_WS_MESSAGE_BYTES) {
         addWarningLog("Oversized message ignored (exceeds size limit)");
@@ -1325,7 +1325,7 @@
 
       switch (envelope.t) {
         case "HELLO":
-          handleHello(envelope.d);
+          await handleHello(envelope.d);
           break;
         case "READY":
           handleReady(envelope.d);
@@ -1368,14 +1368,14 @@
 
     ws = new WebSocket(wsUrl);
 
-    ws.onopen = function () {
+    ws.onopen = async function () {
       addLog("[connected]");
 
       if (sodium && myKeypair) {
-        sendHello();
+        await sendHello();
         // Send READY immediately to request history replay (don't wait for peer)
         if (msgKey) {
-          sendReady();
+          await sendReady();
         }
       } else {
         setPlaintextMode("libsodium not loaded");
@@ -1398,7 +1398,7 @@
   // =============================================================================
 
   // Text message form
-  form.onsubmit = function (event) {
+  form.onsubmit = async function (event) {
     event.preventDefault();
 
     const text = input.value.trim();
@@ -1411,9 +1411,9 @@
 
     let sent = false;
     if (handshakeState === HandshakeState.E2EE_ACTIVE && msgKey) {
-      sent = sendEncryptedMessage(text);
+      sent = await sendEncryptedMessage(text);
     } else {
-      sent = sendPlaintextMessage(text);
+      sent = await sendPlaintextMessage(text);
     }
 
     if (sent) {
