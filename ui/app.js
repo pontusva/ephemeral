@@ -140,7 +140,6 @@
 
   // WebSocket connection
   let ws = null;
-  let outboundSeq = 0;
   let lastSeenSeq = 0;
   let historyReplayActive = false;
   let replayTimer = null;
@@ -895,7 +894,7 @@
       if (
         !(await sendEnvelope("IMG_META", {
           v: PROTOCOL_VERSION,
-          seq: nextSeq(),
+          seq: 0, // Server will assign actual seq
           n: metaNonce,
           c: metaCipher,
         }))
@@ -933,7 +932,7 @@
 
         if (!(await sendEnvelope("IMG_CHUNK", {
             v: PROTOCOL_VERSION,
-            seq: nextSeq(),
+            seq: 0, // Server will assign actual seq
             n: chunkNonce,
             c: chunkCipher,
           }))
@@ -968,7 +967,7 @@
       if (
         !(await sendEnvelope("IMG_END", {
           v: PROTOCOL_VERSION,
-          seq: nextSeq(),
+          seq: 0, // Server will assign actual seq
           n: endNonce,
           c: endCipher,
         }))
@@ -1263,13 +1262,6 @@
     debugLog("Sent HELLO");
   }
 
-  function nextSeq() {
-    if (lastSeenSeq > outboundSeq) {
-      outboundSeq = lastSeenSeq;
-    }
-    outboundSeq += 1;
-    return outboundSeq;
-  }
 
   async function sendReady() {
     await sendEnvelope("READY", {
@@ -1287,13 +1279,9 @@
 
     try {
       const { nonce, ciphertext } = encryptMessage(text);
-      if (lastSeenSeq > outboundSeq) {
-        outboundSeq = lastSeenSeq;
-      }
-      outboundSeq += 1;
       await sendEnvelope("MSG", {
         v: PROTOCOL_VERSION,
-        seq: outboundSeq,
+        seq: 0, // Server will assign actual seq
         n: nonce,
         c: ciphertext,
       });

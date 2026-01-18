@@ -209,7 +209,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			}
 
 			// Persist MSG, IMG_META, IMG_CHUNK, IMG_END for history replay
-		if envelope.Type == "MSG" || envelope.Type == "IMG_META" || envelope.Type == "IMG_CHUNK" || envelope.Type == "IMG_END" {
+			if envelope.Type == "MSG" || envelope.Type == "IMG_META" || envelope.Type == "IMG_CHUNK" || envelope.Type == "IMG_END" {
 				var payload struct {
 					Seq        int    `json:"seq"`
 					Nonce      string `json:"nonce"`
@@ -231,9 +231,9 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					ciphertext = payload.C
 				}
 
-				if payload.Seq <= 0 || nonce == "" || ciphertext == "" {
+				if payload.Seq < 0 || nonce == "" || ciphertext == "" {
 					log.Println("invalid MSG payload")
-					sendProtocolError("MSG_REJECTED", "invalid or duplicate seq")
+					sendProtocolError("MSG_REJECTED", "invalid sequence or payload")
 					continue
 				}
 
@@ -250,26 +250,33 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					continue
 				}
 
-				if err := rooms.InsertMessage(
+				assignedSeq, err := rooms.InsertMessage(
 					db,
 					token,
-					payload.Seq,
 					nonceBytes,
 					cipherBytes,
 					time.Now().Unix(),
 					envelope.Type,
-				); err != nil {
+				)
+				if err != nil {
 					log.Printf("InsertMessage failed for %s: %v\n", envelope.Type, err)
 					sendProtocolError("MSG_REJECTED", "failed to persist message")
 					continue
 				}
 
-				// Relay only if successfully persisted
-				rh.hub.BroadcastExcept(data, conn)
+				// Update the relayed envelope with the server-assigned sequence
+				// This ensures all clients have a consistent global ordering
+				payload.Seq = assignedSeq
+				updatedPayload, _ := json.Marshal(payload)
+				envelope.Payload = updatedPayload
+				updatedEnvelope, _ := json.Marshal(envelope)
+
+				// Relay successfully persisted and re-sequenced message
+				rh.hub.BroadcastExcept(updatedEnvelope, conn)
 				continue
 			}
 
-			// Relay other non-persisted messages (HELLO, etc)
+			// Relay other non-persisted messages
 			rh.hub.BroadcastExcept(data, conn)
 		}
 	}

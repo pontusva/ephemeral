@@ -70,9 +70,9 @@ func (c *Config) applyDevelopmentDefaults() {
 func (c *Config) applyProductionDefaults() {
 	// Production mode requires explicit configuration
 	// These are placeholders that will be overridden by environment variables
-	c.Host = ""     // Must be set via EPHEMERAL_HOST
-	c.Port = ""     // Must be set via EPHEMERAL_PORT
-	c.DBPath = ""   // Must be set via EPHEMERAL_DB_PATH
+	c.Host = ""   // Must be set via EPHEMERAL_HOST
+	c.Port = ""   // Must be set via EPHEMERAL_PORT
+	c.DBPath = "" // Must be set via EPHEMERAL_DB_PATH
 	c.UIDir = "ui"
 	c.LogLevel = "info"
 }
