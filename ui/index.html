@@ -376,6 +376,96 @@
         box-shadow: 0 0 10px var(--slime-glow);
       }
 
+      /* Image Thumbnail & Lightbox */
+      .image-thumbnail-wrapper {
+        margin: 10px 0;
+        display: inline-block;
+        position: relative;
+        cursor: pointer;
+        transition: transform 0.2s ease;
+        border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid var(--smoke);
+        background: var(--void-lighter);
+        line-height: 0;
+      }
+
+      .image-thumbnail-wrapper:hover {
+        transform: scale(1.02);
+        border-color: var(--slime);
+        box-shadow: 0 0 20px rgba(184, 255, 0, 0.15);
+      }
+
+      .image-thumbnail {
+        max-width: 240px;
+        max-height: 180px;
+        display: block;
+        object-fit: cover;
+      }
+
+      #image-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.9);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 40px;
+        backdrop-filter: blur(8px);
+      }
+
+      #image-modal.show {
+        display: flex;
+        animation: fadeIn 0.3s ease-out;
+      }
+
+      #modal-img {
+        max-width: 100%;
+        max-height: calc(100vh - 160px);
+        object-fit: contain;
+        box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .modal-actions {
+        margin-top: 24px;
+        display: flex;
+        gap: 16px;
+      }
+
+      .modal-btn {
+        padding: 12px 24px;
+        background: var(--void-lighter);
+        border: 1px solid var(--smoke);
+        color: var(--ghost);
+        border-radius: 4px;
+        font-family: "Darker Grotesque", sans-serif;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .modal-btn:hover {
+        border-color: var(--slime);
+        color: var(--slime);
+        background: rgba(184, 255, 0, 0.05);
+      }
+
+      .modal-btn.primary {
+        background: var(--slime);
+        color: var(--void);
+        border: none;
+      }
+
+      .modal-btn.primary:hover {
+        background: var(--slime-dark);
+        box-shadow: 0 0 30px var(--slime-glow);
+      }
+
     </style>
   </head>
   <body>
@@ -436,6 +526,14 @@
       </button>
 
       <div class="tag">encrypted with <span>♥</span> // ephemeral</div>
+    </div>
+
+    <div id="image-modal" role="dialog" aria-modal="true">
+      <img id="modal-img" src="" alt="Full size encrypted image" />
+      <div class="modal-actions">
+        <button id="modal-save" class="modal-btn primary">Save Image</button>
+        <button id="modal-close" class="modal-btn">Close</button>
+      </div>
     </div>
 
     <!-- Load libsodium first (must be ready before app.js) -->

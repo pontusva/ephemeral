@@ -121,6 +121,12 @@
   const destroyButton = document.getElementById("destroy-btn");
   const progressArea = document.getElementById("progress-area");
 
+  // Image Modal references
+  const imageModal = document.getElementById("image-modal");
+  const modalImg = document.getElementById("modal-img");
+  const modalSave = document.getElementById("modal-save");
+  const modalClose = document.getElementById("modal-close");
+
   // Crypto state
   let sodium = null;
   let myKeypair = null;
@@ -719,65 +725,38 @@
           ? file
           : new Blob([imageBytes], { type: file.type || "image/jpeg" });
       const objectUrl = URL.createObjectURL(blob);
+      // Create entry container (block-level to ensure vertical stacking)
+      const entry = document.createElement("div");
+      entry.style.margin = "15px 0";
+      entry.style.display = "block";
 
-      // Add text log
-      addChatLine(`[image] ${fileName}`, senderPubB64);
-
-      const isLocal = isLocalSender(senderPubB64);
-      // Create container for image and controls
-      const container = document.createElement("div");
-      container.style.marginTop = "8px";
-      container.style.marginBottom = "8px";
-      container.style.padding = "8px";
-      container.style.backgroundColor =
-        isLocal === null ? "#f0f0f0" : isLocal ? "#e8f5e9" : "#f0f0f0";
-      container.style.borderRadius = "8px";
-      container.style.border = "1px solid #ccc";
-
-      // Create image element
+      // Create thumbnail wrapper
+      const wrapper = document.createElement("div");
+      wrapper.className = "image-thumbnail-wrapper";
+      wrapper.title = "Click to view full size";
+      
       const img = document.createElement("img");
       img.src = objectUrl;
-      img.style.maxWidth = "100%";
-      img.style.maxHeight = "400px";
-      img.style.display = "block";
-      img.style.marginBottom = "8px";
-      img.style.borderRadius = "4px";
-      img.style.cursor = "pointer";
-      img.title = "Click to view full size";
+      img.className = "image-thumbnail";
+      img.alt = fileName;
 
-      // Click to open in new tab
-      img.onclick = () => {
-        window.open(objectUrl, "_blank");
+      wrapper.appendChild(img);
+      
+      // Click handler to open lightbox
+      wrapper.onclick = () => {
+        openImageModal(objectUrl, fileName);
       };
 
-      // Create download button
-      const downloadBtn = document.createElement("button");
-      downloadBtn.textContent = "💾 Save Image";
-      downloadBtn.style.padding = "4px 8px";
-      downloadBtn.style.fontSize = "12px";
-      downloadBtn.style.cursor = "pointer";
-      downloadBtn.style.backgroundColor = "#4CAF50";
-      downloadBtn.style.color = "white";
-      downloadBtn.style.border = "none";
-      downloadBtn.style.borderRadius = "4px";
-      downloadBtn.onclick = () => {
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = fileName;
-        a.click();
-      };
+      // Create label div for below the image
+      const label = document.createElement("div");
+      label.style.fontSize = "12px";
+      label.style.color = "var(--ash)";
+      label.style.marginTop = "4px";
+      const senderLabel = getSenderLabel(senderPubB64);
+      label.textContent = `${senderLabel}: [image] ${fileName}`;
 
-      // Create info text
-      const info = document.createElement("div");
-      info.style.fontSize = "11px";
-      info.style.color = "#666";
-      info.style.marginTop = "4px";
-      info.textContent = `${fileName} (${(fileSize / 1024).toFixed(1)} KB)`;
-
-      // Assemble container
-      container.appendChild(img);
-      container.appendChild(downloadBtn);
-      container.appendChild(info);
+      entry.appendChild(wrapper);
+      entry.appendChild(label);
 
       img.onload = () => {
         log.scrollTop = log.scrollHeight;
@@ -787,15 +766,65 @@
         addWarningLog("Failed to load image preview");
       };
 
-      log.appendChild(container);
+      log.appendChild(entry);
 
-      // Cleanup object URL after 5 minutes
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 300000);
+      // Cleanup object URL after 15 minutes (extended since it's used in modal)
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 900000);
     } catch (err) {
       addLog("[error] Failed to display image: " + err.message, true);
       console.error("Image display error:", err);
     }
   }
+
+  // =============================================================================
+  // LIGHTBOX MODAL HANDLERS
+  // =============================================================================
+
+  let currentModalUrl = "";
+  let currentModalFilename = "";
+
+  function openImageModal(url, filename) {
+    if (!imageModal || !modalImg) return;
+    
+    currentModalUrl = url;
+    currentModalFilename = filename;
+    
+    modalImg.src = url;
+    imageModal.classList.add("show");
+    document.body.style.overflow = "hidden"; // Prevent scrolling
+  }
+
+  function closeImageModal() {
+    if (!imageModal) return;
+    imageModal.classList.remove("show");
+    document.body.style.overflow = ""; // Restore scrolling
+  }
+
+  if (modalClose) {
+    modalClose.onclick = closeImageModal;
+  }
+
+  if (imageModal) {
+    // Close on backdrop click
+    imageModal.onclick = (e) => {
+      if (e.target === imageModal) closeImageModal();
+    };
+  }
+
+  if (modalSave) {
+    modalSave.onclick = () => {
+      if (!currentModalUrl) return;
+      const a = document.createElement("a");
+      a.href = currentModalUrl;
+      a.download = currentModalFilename || "image";
+      a.click();
+    };
+  }
+
+  // Handle Esc key
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeImageModal();
+  });
 
   /**
    * Send image via chunked encrypted transfer
@@ -1126,7 +1155,6 @@
       // Cleanup
       removeProgressBar(payload.id);
       incomingImages.delete(payload.id);
-      addSystemLog("Image received");
     } catch (err) {
       addWarningLog("Invalid IMG_END: " + err.message);
     }
