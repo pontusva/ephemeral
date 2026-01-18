@@ -12,6 +12,7 @@ import (
 
 	"ephemeral/internal/rooms"
 	"ephemeral/internal/ws"
+	"sync"
 
 	"github.com/coder/websocket"
 )
@@ -25,11 +26,23 @@ type Envelope struct {
 }
 
 type roomHub struct {
-	hub   *ws.Hub
-	count int
+	mu      sync.Mutex // protects lastSeq
+	hub     *ws.Hub
+	count   int
+	lastSeq int
 }
 
-var hubs = make(map[string]*roomHub)
+func (rh *roomHub) NextSeq() int {
+	rh.mu.Lock()
+	defer rh.mu.Unlock()
+	rh.lastSeq++
+	return rh.lastSeq
+}
+
+var (
+	hubs   = make(map[string]*roomHub)
+	hubsMu sync.Mutex // protects hubs map
+)
 
 func wsHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +59,18 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Get or create hub
+		// Get or create hub (protected by mutex)
+		hubsMu.Lock()
 		rh := hubs[token]
 		if rh == nil {
-			rh = &roomHub{hub: ws.NewHub()}
+			maxSeq, _ := rooms.GetMaxSeq(db, token)
+			rh = &roomHub{
+				hub:     ws.NewHub(),
+				lastSeq: maxSeq,
+			}
 			hubs[token] = rh
 		}
+		hubsMu.Unlock()
 
 		// Enforce max 2 participants
 		if rh.count >= 2 {
@@ -87,6 +106,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 
 		defer func() {
 			rh.hub.Remove(conn)
+			hubsMu.Lock()
 			rh.count--
 
 			// Clean up in-memory hub when last client disconnects
@@ -94,6 +114,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			if rh.count == 0 {
 				delete(hubs, token)
 			}
+			hubsMu.Unlock()
 		}()
 
 		// --- writer loop (server → client) ---
@@ -250,15 +271,16 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					continue
 				}
 
-				assignedSeq, err := rooms.InsertMessage(
+				assignedSeq := rh.NextSeq()
+				if err := rooms.InsertMessage(
 					db,
 					token,
+					assignedSeq,
 					nonceBytes,
 					cipherBytes,
 					time.Now().Unix(),
 					envelope.Type,
-				)
-				if err != nil {
+				); err != nil {
 					log.Printf("InsertMessage failed for %s: %v\n", envelope.Type, err)
 					sendProtocolError("MSG_REJECTED", "failed to persist message")
 					continue

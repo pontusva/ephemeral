@@ -17,16 +17,17 @@ type MessageRow struct {
 func InsertMessage(
 	db *sql.DB,
 	roomID string,
+	seq int,
 	nonce []byte,
 	ciphertext []byte,
 	createdAt int64,
 	messageType string,
-) (int, error) {
+) error {
 	now := time.Now().Unix()
 
 	tx, err := db.Begin()
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	expiresAt, err := scanUnixValueRow(tx.QueryRow(`
@@ -36,40 +37,39 @@ func InsertMessage(
 	if err != nil {
 		_ = tx.Rollback()
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, errors.New("room not found")
+			return errors.New("room not found")
 		}
-		return 0, err
+		return err
 	}
 
 	if expiresAt <= now {
 		_ = tx.Rollback()
-		return 0, errors.New("room expired")
-	}
-
-	// Calculate the next sequence number for this room
-	var nextSeq int
-	if err := tx.QueryRow(`
-		SELECT COALESCE(MAX(seq), 0) + 1 FROM ephemeral_messages
-		WHERE room_id = ?
-	`, roomID).Scan(&nextSeq); err != nil {
-		_ = tx.Rollback()
-		return 0, err
+		return errors.New("room expired")
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO ephemeral_messages (room_id, created_at, ciphertext, nonce, seq, message_type)
 		VALUES (?, ?, ?, ?, ?, ?)
-	`, roomID, createdAt, ciphertext, nonce, nextSeq, messageType); err != nil {
+	`, roomID, createdAt, ciphertext, nonce, seq, messageType); err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
 		_ = tx.Rollback()
-		return 0, err
+		return err
 	}
 
-	return nextSeq, nil
+	return nil
+}
+
+func GetMaxSeq(db *sql.DB, roomID string) (int, error) {
+	var maxSeq int
+	err := db.QueryRow(`
+		SELECT COALESCE(MAX(seq), 0) FROM ephemeral_messages
+		WHERE room_id = ?
+	`, roomID).Scan(&maxSeq)
+	return maxSeq, err
 }
 
 func GetMessagesSince(
