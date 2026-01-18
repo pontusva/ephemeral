@@ -8,7 +8,7 @@ type Conn struct {
 
 func NewConn() *Conn {
 	return &Conn{
-		send: make(chan []byte, 256), // Increased from 8 to handle bursts
+		send: make(chan []byte, 1024), // Increased from 256 to handle large image bursts
 	}
 }
 

@@ -259,13 +259,17 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					time.Now().Unix(),
 					envelope.Type,
 				); err != nil {
-					log.Println("InsertMessage failed:", err)
-					sendProtocolError("MSG_REJECTED", "invalid or duplicate seq")
+					log.Printf("InsertMessage failed for %s: %v\n", envelope.Type, err)
+					sendProtocolError("MSG_REJECTED", "failed to persist message")
 					continue
 				}
+
+				// Relay only if successfully persisted
+				rh.hub.BroadcastExcept(data, conn)
+				continue
 			}
 
-			// Relay raw message bytes to other peers (exclude sender)
+			// Relay other non-persisted messages (HELLO, etc)
 			rh.hub.BroadcastExcept(data, conn)
 		}
 	}

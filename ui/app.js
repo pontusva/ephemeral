@@ -157,20 +157,26 @@
   // LOGGING UTILITIES
   // =============================================================================
 
-  function addLog(line, isError = false) {
-    const textNode = document.createTextNode(line + "\n");
-    log.appendChild(textNode);
+  function addLog(line, className = "") {
+    const div = document.createElement("div");
+    if (className) div.className = className;
+    div.textContent = line;
+    log.appendChild(div);
     log.scrollTop = log.scrollHeight;
-    if (isError) console.error(line);
   }
 
   function addSystemLog(line) {
-    addLog("[system] " + line);
+    addLog("[system] " + line, "log-system");
   }
 
   function addWarningLog(line) {
-    addLog("[warning] " + line);
+    addLog("[warning] " + line, "log-warning");
     if (DEBUG) console.warn(line);
+  }
+
+  function addErrorLog(line) {
+    addLog("[error] " + line, "log-error");
+    console.error(line);
   }
 
   function debugLog(line) {
@@ -852,9 +858,10 @@
       return false;
     }
 
+    let transferId; // Declare transferId here for scope in catch block
     try {
       // Generate random transfer ID
-      const transferId = sodium.to_hex(sodium.randombytes_buf(16));
+      transferId = sodium.to_hex(sodium.randombytes_buf(16));
 
       // Read file as ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
@@ -893,25 +900,21 @@
           c: metaCipher,
         }))
       ) {
-        addWarningLog("Failed to send IMG_META (connection lost)");
-        removeProgressBar(transferId);
-        return false;
+        throw new Error("Connection lost during metadata phase");
       }
 
       updateProgressBar(transferId, 0, `Uploading: ${file.name}`);
 
       // Wait for WebSocket buffer to drain before sending chunks
       if (!(await waitForBufferDrain())) {
-        addWarningLog("Connection lost after IMG_META");
-        return false;
+        throw new Error("Connection failed (write buffer full)");
       }
 
       // Send chunks with connection checks
       for (let i = 0; i < numChunks; i++) {
         // Check connection before each chunk
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-          addWarningLog(`Connection lost at chunk ${i}/${numChunks}`);
-          return false;
+          throw new Error(`Connection lost at chunk ${i}/${numChunks}`);
         }
 
         const start = i * chunkSize;
@@ -935,28 +938,23 @@
             c: chunkCipher,
           }))
         ) {
-          addWarningLog(`Failed to send chunk ${i}/${numChunks}`);
-          removeProgressBar(transferId);
-          return false;
+          throw new Error(`Server rejected chunk ${i}/${numChunks}`);
         }
 
         updateProgressBar(transferId, ((i + 1) / numChunks) * 100, `Uploading: ${file.name}`);
 
         // Wait for buffer to drain before next chunk
         if (!(await waitForBufferDrain())) {
-          addWarningLog(`Connection lost at chunk ${i + 1}/${numChunks}`);
-          removeProgressBar(transferId);
-          return false;
+          throw new Error(`Connection stalled at chunk ${i + 1}/${numChunks}`);
         }
 
-        // Tiny delay to prevent overwhelming server DB transactions
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        // Pacing to prevent overwhelming the server buffer or DB transactions
+        await new Promise((resolve) => setTimeout(resolve, 15));
       }
 
       // Final connection check
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addWarningLog("Connection lost before IMG_END");
-        return false;
+        throw new Error("Connection lost before IMG_END");
       }
 
       // Send IMG_END
@@ -975,13 +973,11 @@
           c: endCipher,
         }))
       ) {
-        addWarningLog("Failed to send IMG_END");
-        removeProgressBar(transferId);
-        return false;
+        throw new Error("Failed to finalize image transfer");
       }
 
       removeProgressBar(transferId);
-      addSystemLog("Image sent");
+      addSystemLog("Image sent successfully");
 
       // Display preview for sender too
       displayImagePreview(
@@ -994,8 +990,8 @@
 
       return true;
     } catch (err) {
-      addLog("[error] Failed to send image: " + err.message, true);
-      if (typeof transferId !== 'undefined') removeProgressBar(transferId);
+      addErrorLog(`Image upload failed: ${err.message}. Please try again.`);
+      if (transferId) removeProgressBar(transferId);
       return false;
     }
   }
@@ -1117,44 +1113,45 @@
       }
 
       // Check if all chunks received
-      if (transfer.chunks.size !== transfer.meta.chunks) {
-        addWarningLog(
-          `Incomplete image: ${transfer.chunks.size}/${transfer.meta.chunks} chunks`
-        );
-        removeProgressBar(payload.id);
-        incomingImages.delete(payload.id);
-        return;
-      }
-
-      // Assemble image
-      const imageBytes = new Uint8Array(transfer.meta.size);
-      let offset = 0;
-      for (let i = 0; i < transfer.meta.chunks; i++) {
-        const chunk = transfer.chunks.get(i);
-        if (!chunk) {
-          addWarningLog("Missing chunk during assembly: " + i);
-          incomingImages.delete(payload.id);
-          return;
-        }
-        imageBytes.set(chunk, offset);
-        offset += chunk.length;
-      }
-
-      // Create blob and display
-      const blob = new Blob([imageBytes], { type: transfer.meta.mime });
-
-      // Display preview using helper
-      displayImagePreview(
-        { type: transfer.meta.mime },
-        imageBytes,
-        transfer.meta.name,
-        transfer.meta.size,
-        extractSenderPublicKey(transfer.meta)
+    if (transfer.chunks.size !== transfer.meta.chunks) {
+      addErrorLog(
+        `Received incomplete image "${transfer.meta.name}" (${transfer.chunks.size}/${transfer.meta.chunks} chunks). The sender might have been disconnected or overwhelmed.`
       );
-
-      // Cleanup
       removeProgressBar(payload.id);
       incomingImages.delete(payload.id);
+      return;
+    }
+
+    // Assemble image
+    const imageBytes = new Uint8Array(transfer.meta.size);
+    let offset = 0;
+    for (let i = 0; i < transfer.meta.chunks; i++) {
+      const chunk = transfer.chunks.get(i);
+      if (!chunk) {
+        addErrorLog(`Failed to assemble image: missing chunk ${i + 1}`);
+        incomingImages.delete(payload.id);
+        removeProgressBar(payload.id);
+        return;
+      }
+      imageBytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    // Create blob and display
+    // const blob = new Blob([imageBytes], { type: transfer.meta.mime }); // blob is handled in displayImagePreview
+
+    // Display preview using helper
+    displayImagePreview(
+      { type: transfer.meta.mime },
+      imageBytes,
+      transfer.meta.name,
+      transfer.meta.size,
+      extractSenderPublicKey(transfer.meta)
+    );
+
+    // Cleanup
+    removeProgressBar(payload.id);
+    incomingImages.delete(payload.id);
     } catch (err) {
       addWarningLog("Invalid IMG_END: " + err.message);
     }
