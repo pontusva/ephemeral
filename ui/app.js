@@ -1525,8 +1525,27 @@
 
     if (sent) {
       input.value = "";
+      input.style.height = "auto"; // Reset height after sending
     }
   };
+
+  // Auto-expand textarea & Handle Enter key
+  if (input) {
+    input.addEventListener("input", function () {
+      this.style.height = "auto";
+      const newHeight = Math.min(this.scrollHeight, 200);
+      this.style.height = newHeight + "px";
+      // Show scrollbar only if max-height is reached
+      this.style.overflowY = this.scrollHeight > 200 ? "auto" : "hidden";
+    });
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.dispatchEvent(new Event("submit"));
+      }
+    });
+  }
 
 
   // Image button
