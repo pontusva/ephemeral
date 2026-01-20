@@ -252,6 +252,11 @@
           0 0 20px rgba(184, 255, 0, 0.1);
       }
 
+      #msg:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
       button {
         font-family: "Darker Grotesque", sans-serif;
         font-size: 15px;
@@ -278,6 +283,12 @@
 
       button[type="submit"]:active {
         transform: translateY(0);
+      }
+
+      button[type="submit"]:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        filter: grayscale(0.5);
       }
 
       #image-btn {
@@ -512,7 +523,7 @@
           autocomplete="off"
           placeholder="type something..."
         ></textarea>
-        <button type="submit">Send</button>
+        <button type="submit" id="send-btn">Send</button>
         <button
           type="button"
           id="image-btn"

@@ -112,6 +112,7 @@
   const log = document.getElementById("log");
   const form = document.getElementById("send");
   const input = document.getElementById("msg");
+  const sendButton = document.getElementById("send-btn");
   const banner = document.getElementById("e2ee-banner");
   const statusIndicator = document.getElementById("e2ee-status");
   const imageButton = document.getElementById("image-btn");
@@ -142,6 +143,7 @@
   let ws = null;
   let lastSeenSeq = 0;
   let historyReplayActive = false;
+  let activeTransfers = 0;
   let replayTimer = null;
 
   // Room expiry state
@@ -298,6 +300,20 @@
           wrapper.remove();
         }
       }, 300);
+    }
+  }
+
+  /**
+   * Update input and send button state based on ongoing transfers
+   */
+  function updateInputState() {
+    const isDisabled = activeTransfers > 0;
+    if (input) input.disabled = isDisabled;
+    if (sendButton) sendButton.disabled = isDisabled;
+    if (isDisabled && input) {
+      input.placeholder = "transferring image...";
+    } else if (input) {
+      input.placeholder = "type something...";
     }
   }
 
@@ -858,6 +874,9 @@
     }
 
     let transferId; // Declare transferId here for scope in catch block
+    activeTransfers++;
+    updateInputState();
+
     try {
       // Generate random transfer ID
       transferId = sodium.to_hex(sodium.randombytes_buf(16));
@@ -992,6 +1011,9 @@
       addErrorLog(`Image upload failed: ${err.message}. Please try again.`);
       if (transferId) removeProgressBar(transferId);
       return false;
+    } finally {
+      activeTransfers--;
+      updateInputState();
     }
   }
 
@@ -1024,6 +1046,9 @@
         receivedBytes: 0,
         startTime: Date.now(),
       });
+
+      activeTransfers++;
+      updateInputState();
 
       addSystemLog(
         `Receiving image: ${payload.name} (${(payload.size / 1024).toFixed(
@@ -1117,7 +1142,11 @@
         `Received incomplete image "${transfer.meta.name}" (${transfer.chunks.size}/${transfer.meta.chunks} chunks). The sender might have been disconnected or overwhelmed.`
       );
       removeProgressBar(payload.id);
-      incomingImages.delete(payload.id);
+      if (incomingImages.has(payload.id)) {
+        incomingImages.delete(payload.id);
+        activeTransfers = Math.max(0, activeTransfers - 1);
+        updateInputState();
+      }
       return;
     }
 
@@ -1128,7 +1157,11 @@
       const chunk = transfer.chunks.get(i);
       if (!chunk) {
         addErrorLog(`Failed to assemble image: missing chunk ${i + 1}`);
-        incomingImages.delete(payload.id);
+        if (incomingImages.has(payload.id)) {
+          incomingImages.delete(payload.id);
+          activeTransfers = Math.max(0, activeTransfers - 1);
+          updateInputState();
+        }
         removeProgressBar(payload.id);
         return;
       }
@@ -1149,8 +1182,12 @@
     );
 
     // Cleanup
+    if (incomingImages.has(payload.id)) {
+      incomingImages.delete(payload.id);
+      activeTransfers = Math.max(0, activeTransfers - 1);
+      updateInputState();
+    }
     removeProgressBar(payload.id);
-    incomingImages.delete(payload.id);
     } catch (err) {
       addWarningLog("Invalid IMG_END: " + err.message);
     }
@@ -1172,6 +1209,8 @@
         addWarningLog("Image transfer timeout: " + transfer.meta.name);
         removeProgressBar(id);
         incomingImages.delete(id);
+        activeTransfers = Math.max(0, activeTransfers - 1);
+        updateInputState();
       }
     }
   }
@@ -1510,6 +1549,12 @@
 
     ws.onclose = function () {
       addLog("[disconnected]");
+      // Reset active transfers on disconnect to avoid stuck UI
+      if (activeTransfers > 0) {
+        activeTransfers = 0;
+        incomingImages.clear();
+        updateInputState();
+      }
     };
   }
 
