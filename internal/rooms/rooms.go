@@ -23,7 +23,7 @@ func Create(db *sql.DB, ttl time.Duration) (string, time.Time, error) {
 
 	if err == nil {
 		notify.Emit("room.created", token, ttl.String())
-	      }
+	}
 
 	return token, time.Unix(expires, 0), err
 }

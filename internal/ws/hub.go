@@ -8,7 +8,7 @@ type Conn struct {
 
 func NewConn() *Conn {
 	return &Conn{
-		send: make(chan []byte, 8),
+		send: make(chan []byte, 1024), // Increased from 256 to handle large image bursts
 	}
 }
 
@@ -21,6 +21,12 @@ func (c *Conn) Enqueue(msg []byte) {
 	case c.send <- msg:
 	default:
 	}
+}
+
+// EnqueueReliable blocks until the message is sent or the sender's context is canceled.
+// Use this for critical messages like history replay where dropping is not acceptable.
+func (c *Conn) EnqueueReliable(msg []byte) {
+	c.send <- msg
 }
 
 type Hub struct {

@@ -12,6 +12,7 @@ import (
 
 	"ephemeral/internal/rooms"
 	"ephemeral/internal/ws"
+	"sync"
 
 	"github.com/coder/websocket"
 )
@@ -25,11 +26,23 @@ type Envelope struct {
 }
 
 type roomHub struct {
-	hub   *ws.Hub
-	count int
+	mu      sync.Mutex // protects lastSeq
+	hub     *ws.Hub
+	count   int
+	lastSeq int
 }
 
-var hubs = make(map[string]*roomHub)
+func (rh *roomHub) NextSeq() int {
+	rh.mu.Lock()
+	defer rh.mu.Unlock()
+	rh.lastSeq++
+	return rh.lastSeq
+}
+
+var (
+	hubs   = make(map[string]*roomHub)
+	hubsMu sync.Mutex // protects hubs map
+)
 
 func wsHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +59,18 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Get or create hub
+		// Get or create hub (protected by mutex)
+		hubsMu.Lock()
 		rh := hubs[token]
 		if rh == nil {
-			rh = &roomHub{hub: ws.NewHub()}
+			maxSeq, _ := rooms.GetMaxSeq(db, token)
+			rh = &roomHub{
+				hub:     ws.NewHub(),
+				lastSeq: maxSeq,
+			}
 			hubs[token] = rh
 		}
+		hubsMu.Unlock()
 
 		// Enforce max 2 participants
 		if rh.count >= 2 {
@@ -65,8 +84,8 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 		if err != nil {
 			return
 		}
-		// Set read limit to 1MB to handle large encrypted image chunks
-		wsconn.SetReadLimit(1024 * 1024) // 1 MB
+		// Set read limit to 10MB to handle large encrypted image chunks
+		wsconn.SetReadLimit(8 * 1024 * 1024) // 10 MB
 		defer wsconn.Close(websocket.StatusNormalClosure, "")
 
 		conn := ws.NewConn()
@@ -87,6 +106,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 
 		defer func() {
 			rh.hub.Remove(conn)
+			hubsMu.Lock()
 			rh.count--
 
 			// Clean up in-memory hub when last client disconnects
@@ -94,6 +114,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			if rh.count == 0 {
 				delete(hubs, token)
 			}
+			hubsMu.Unlock()
 		}()
 
 		// --- writer loop (server → client) ---
@@ -142,7 +163,11 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 				if err != nil {
 					return err
 				}
-				conn.Enqueue(payload)
+				conn.EnqueueReliable(payload)
+
+				// Pace history replay to avoid overwhelming the client socket
+				// and triggering disconnects or buffer overflows.
+				time.Sleep(5 * time.Millisecond)
 			}
 
 			historySent = true
@@ -205,7 +230,7 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 			}
 
 			// Persist MSG, IMG_META, IMG_CHUNK, IMG_END for history replay
-		if envelope.Type == "MSG" || envelope.Type == "IMG_META" || envelope.Type == "IMG_CHUNK" || envelope.Type == "IMG_END" {
+			if envelope.Type == "MSG" || envelope.Type == "IMG_META" || envelope.Type == "IMG_CHUNK" || envelope.Type == "IMG_END" {
 				var payload struct {
 					Seq        int    `json:"seq"`
 					Nonce      string `json:"nonce"`
@@ -227,9 +252,9 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					ciphertext = payload.C
 				}
 
-				if payload.Seq <= 0 || nonce == "" || ciphertext == "" {
+				if payload.Seq < 0 || nonce == "" || ciphertext == "" {
 					log.Println("invalid MSG payload")
-					sendProtocolError("MSG_REJECTED", "invalid or duplicate seq")
+					sendProtocolError("MSG_REJECTED", "invalid sequence or payload")
 					continue
 				}
 
@@ -246,22 +271,34 @@ func wsHandler(db *sql.DB) http.HandlerFunc {
 					continue
 				}
 
+				assignedSeq := rh.NextSeq()
 				if err := rooms.InsertMessage(
 					db,
 					token,
-					payload.Seq,
+					assignedSeq,
 					nonceBytes,
 					cipherBytes,
 					time.Now().Unix(),
 					envelope.Type,
 				); err != nil {
-					log.Println("InsertMessage failed:", err)
-					sendProtocolError("MSG_REJECTED", "invalid or duplicate seq")
+					log.Printf("InsertMessage failed for %s: %v\n", envelope.Type, err)
+					sendProtocolError("MSG_REJECTED", "failed to persist message")
 					continue
 				}
+
+				// Update the relayed envelope with the server-assigned sequence
+				// This ensures all clients have a consistent global ordering
+				payload.Seq = assignedSeq
+				updatedPayload, _ := json.Marshal(payload)
+				envelope.Payload = updatedPayload
+				updatedEnvelope, _ := json.Marshal(envelope)
+
+				// Relay successfully persisted and re-sequenced message
+				rh.hub.BroadcastExcept(updatedEnvelope, conn)
+				continue
 			}
 
-			// Relay raw message bytes to other peers (exclude sender)
+			// Relay other non-persisted messages
 			rh.hub.BroadcastExcept(data, conn)
 		}
 	}

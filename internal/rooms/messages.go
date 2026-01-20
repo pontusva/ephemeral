@@ -47,19 +47,6 @@ func InsertMessage(
 		return errors.New("room expired")
 	}
 
-	var count int
-	if err := tx.QueryRow(`
-		SELECT COUNT(*) FROM ephemeral_messages
-		WHERE room_id = ? AND seq = ?
-	`, roomID, seq).Scan(&count); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	if count > 0 {
-		_ = tx.Rollback()
-		return errors.New("duplicate message seq")
-	}
-
 	if _, err := tx.Exec(`
 		INSERT INTO ephemeral_messages (room_id, created_at, ciphertext, nonce, seq, message_type)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -74,6 +61,15 @@ func InsertMessage(
 	}
 
 	return nil
+}
+
+func GetMaxSeq(db *sql.DB, roomID string) (int, error) {
+	var maxSeq int
+	err := db.QueryRow(`
+		SELECT COALESCE(MAX(seq), 0) FROM ephemeral_messages
+		WHERE room_id = ?
+	`, roomID).Scan(&maxSeq)
+	return maxSeq, err
 }
 
 func GetMessagesSince(

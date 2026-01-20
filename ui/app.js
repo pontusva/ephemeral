@@ -25,7 +25,22 @@
   // ROUTING: Check if this is a room link or should redirect to create page
   // =============================================================================
 
-  const roomToken = location.hash.slice(1);
+  const hash = location.hash.startsWith("#") ? location.hash.slice(1) : "";
+  const hashParts = hash.split("&");
+  const roomToken = hashParts[0];
+  const urlHasPriv = hash.includes("&priv=");
+  let privParam = null;
+  for (let i = 1; i < hashParts.length; i++) {
+    const part = hashParts[i];
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    const key = part.slice(0, eq);
+    const value = part.slice(eq + 1);
+    if (key === "priv") {
+      privParam = value ? decodeURIComponent(value) : null;
+      break;
+    }
+  }
   if (!roomToken) {
     // No token in hash - redirect to create page
     window.location.href = "/create-room";
@@ -104,10 +119,19 @@
   const expiryBanner = document.getElementById("expiry-banner");
   const expiryText = document.getElementById("expiry-text");
   const destroyButton = document.getElementById("destroy-btn");
+  const progressArea = document.getElementById("progress-area");
+
+  // Image Modal references
+  const imageModal = document.getElementById("image-modal");
+  const modalImg = document.getElementById("modal-img");
+  const modalSave = document.getElementById("modal-save");
+  const modalClose = document.getElementById("modal-close");
 
   // Crypto state
   let sodium = null;
   let myKeypair = null;
+  let localPublicKey = null;
+  let localPublicKeyB64 = null;
   let peerPublicKey = null;
   let msgKey = null;
 
@@ -116,8 +140,9 @@
 
   // WebSocket connection
   let ws = null;
-  let outboundSeq = 0;
   let lastSeenSeq = 0;
+  let historyReplayActive = false;
+  let replayTimer = null;
 
   // Room expiry state
   let roomExpiresAt = null;
@@ -131,25 +156,151 @@
   // LOGGING UTILITIES
   // =============================================================================
 
-  function addLog(line, isError = false) {
-    const textNode = document.createTextNode(line + "\n");
-    log.appendChild(textNode);
+  function addLog(line, className = "") {
+    const div = document.createElement("div");
+    if (className) div.className = className;
+    div.textContent = line;
+    log.appendChild(div);
     log.scrollTop = log.scrollHeight;
-    if (isError) console.error(line);
   }
 
   function addSystemLog(line) {
-    addLog("[system] " + line);
+    addLog("[system] " + line, "log-system");
   }
 
   function addWarningLog(line) {
-    addLog("[warning] " + line);
+    addLog("[warning] " + line, "log-warning");
     if (DEBUG) console.warn(line);
+  }
+
+  function addErrorLog(line) {
+    addLog("[error] " + line, "log-error");
+    console.error(line);
   }
 
   function debugLog(line) {
     if (DEBUG) console.log("[debug]", line);
   }
+
+  function noteReplayActivity() {
+    historyReplayActive = true;
+    if (replayTimer) {
+      clearTimeout(replayTimer);
+    }
+    replayTimer = setTimeout(() => {
+      historyReplayActive = false;
+    }, 200);
+  }
+
+  function getLocalPublicKeyB64() {
+    if (localPublicKeyB64) return localPublicKeyB64;
+    if (sodium && myKeypair && myKeypair.publicKey) {
+      localPublicKeyB64 = sodium.to_base64(myKeypair.publicKey);
+    }
+    return localPublicKeyB64;
+  }
+
+  function isLocalSender(senderPubB64) {
+    const localB64 = localPublicKeyB64;
+    if (!localB64 || !senderPubB64) return null;
+    return senderPubB64 === localB64;
+  }
+
+  function getSenderLabel(senderPubB64) {
+    const isLocal = isLocalSender(senderPubB64);
+    if (isLocal === null) return "user_? / ?";
+    const localLabel = urlHasPriv ? "user_2 / me" : "user_1 / me";
+    const remoteLabel = urlHasPriv ? "user_1 / them" : "user_2 / them";
+    return isLocal ? localLabel : remoteLabel;
+  }
+
+  function extractSenderPublicKey(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    if (
+      obj.signature &&
+      typeof obj.signature === "object" &&
+      typeof obj.signature.publicKey === "string"
+    ) {
+      return obj.signature.publicKey;
+    }
+    if (typeof obj.pub === "string") return obj.pub;
+    return null;
+  }
+
+  function updateChatLine(line) {
+    const text = line.dataset.text || "";
+    const suffix = line.dataset.suffix || "";
+    const senderPub = line.dataset.sender || "";
+    const label = getSenderLabel(senderPub);
+    line.textContent = label + ": " + text + (suffix ? " " + suffix : "");
+  }
+
+  function addChatLine(text, senderPubB64, suffix = "") {
+    const line = document.createElement("div");
+    line.dataset.text = text;
+    line.dataset.sender = senderPubB64 || "";
+    if (suffix) line.dataset.suffix = suffix;
+    updateChatLine(line);
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function refreshChatLabels() {
+    if (!log) return;
+    const lines = log.querySelectorAll("div[data-text]");
+    lines.forEach(updateChatLine);
+  }
+
+  // =============================================================================
+  // UI UTILITIES - PROGRESS BARS
+  // =============================================================================
+
+  function updateProgressBar(id, progress, label) {
+    if (!progressArea) return;
+
+    let wrapper = document.getElementById("progress-" + id);
+    if (!wrapper) {
+      wrapper = document.createElement("div");
+      wrapper.id = "progress-" + id;
+      wrapper.className = "progress-wrapper";
+      wrapper.innerHTML = `
+        <div class="progress-info">
+          <span class="progress-label"></span>
+          <span class="progress-percent">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill"></div>
+        </div>
+      `;
+      progressArea.appendChild(wrapper);
+    }
+
+    const labelEl = wrapper.querySelector(".progress-label");
+    const percentEl = wrapper.querySelector(".progress-percent");
+    const fillEl = wrapper.querySelector(".progress-bar-fill");
+
+    const displayLabel = historyReplayActive ? `[Replaying] ${label}` : label;
+    labelEl.textContent = displayLabel;
+
+    const percent = Math.min(100, Math.max(0, Math.round(progress)));
+    percentEl.textContent = percent + "%";
+    fillEl.style.width = percent + "%";
+  }
+
+  function removeProgressBar(id) {
+    const wrapper = document.getElementById("progress-" + id);
+    if (wrapper) {
+      wrapper.style.opacity = "0";
+      wrapper.style.transform = "translateY(-10px)";
+      wrapper.style.transition = "all 0.3s ease";
+      setTimeout(() => {
+        if (wrapper.parentNode) {
+          wrapper.remove();
+        }
+      }, 300);
+    }
+  }
+
 
   // =============================================================================
   // UI STATE MANAGEMENT
@@ -370,6 +521,28 @@
     if (data.text.length > MAX_PLAINTEXT_CHARS) {
       throw new Error("Plaintext message exceeds size limit");
     }
+    if (data.signature !== undefined) {
+      if (!data.signature || typeof data.signature !== "object") {
+        throw new Error("Invalid 'signature' field");
+      }
+      if (typeof data.signature.publicKey !== "string") {
+        throw new Error("Invalid 'signature.publicKey' field");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(
+          data.signature.publicKey,
+          X25519_PUBKEY_BYTES,
+          "CHAT.signature.publicKey"
+        );
+      }
+    } else if (data.pub !== undefined) {
+      if (typeof data.pub !== "string") {
+        throw new Error("Invalid 'pub' field");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(data.pub, X25519_PUBKEY_BYTES, "CHAT.pub");
+      }
+    }
     return true;
   }
 
@@ -378,6 +551,26 @@
     if (payload.type !== "IMG_META") throw new Error("Wrong inner type");
     if (!payload.id || typeof payload.id !== "string")
       throw new Error("Missing id");
+    if (payload.signature !== undefined) {
+      if (!payload.signature || typeof payload.signature !== "object") {
+        throw new Error("Invalid signature");
+      }
+      if (typeof payload.signature.publicKey !== "string") {
+        throw new Error("Invalid signature.publicKey");
+      }
+      if (sodium) {
+        decodeAndValidateBase64(
+          payload.signature.publicKey,
+          X25519_PUBKEY_BYTES,
+          "IMG_META.signature.publicKey"
+        );
+      }
+    } else if (payload.pub !== undefined) {
+      if (typeof payload.pub !== "string") throw new Error("Invalid pub");
+      if (sodium) {
+        decodeAndValidateBase64(payload.pub, X25519_PUBKEY_BYTES, "IMG_META.pub");
+      }
+    }
     if (!payload.mime || !ALLOWED_IMAGE_MIMES.has(payload.mime)) {
       throw new Error("Invalid or disallowed MIME type");
     }
@@ -500,12 +693,21 @@
 
   // Legacy text-only encryption (kept for compatibility)
   function encryptMessage(plaintext) {
-    return encryptPayload({ text: plaintext });
+    return encryptPayload({
+      text: plaintext,
+      signature: { publicKey: getLocalPublicKeyB64() },
+    });
   }
 
   function decryptMessage(nonceB64, ciphertextB64) {
     const payload = decryptPayload(nonceB64, ciphertextB64);
-    return payload.text || "";
+    if (!payload || typeof payload !== "object") {
+      return { text: "", pub: null };
+    }
+    return {
+      text: typeof payload.text === "string" ? payload.text : "",
+      pub: extractSenderPublicKey(payload),
+    };
   }
 
   // =============================================================================
@@ -520,7 +722,7 @@
     imageBytes,
     fileName,
     fileSize,
-    prefix = "> "
+    senderPubB64 = null
   ) {
     try {
       const blob =
@@ -528,65 +730,38 @@
           ? file
           : new Blob([imageBytes], { type: file.type || "image/jpeg" });
       const objectUrl = URL.createObjectURL(blob);
+      // Create entry container (block-level to ensure vertical stacking)
+      const entry = document.createElement("div");
+      entry.style.margin = "15px 0";
+      entry.style.display = "block";
 
-      // Add text log
-      addLog(`${prefix}[image] ${fileName}`);
-
-      // Create container for image and controls
-      const container = document.createElement("div");
-      container.style.marginTop = "8px";
-      container.style.marginBottom = "8px";
-      container.style.padding = "8px";
-      container.style.backgroundColor = prefix.includes("<")
-        ? "#e8f5e9"
-        : "#f0f0f0";
-      container.style.borderRadius = "8px";
-      container.style.border = "1px solid #ccc";
-
-      // Create image element
+      // Create thumbnail wrapper
+      const wrapper = document.createElement("div");
+      wrapper.className = "image-thumbnail-wrapper";
+      wrapper.title = "Click to view full size";
+      
       const img = document.createElement("img");
       img.src = objectUrl;
-      img.style.maxWidth = "100%";
-      img.style.maxHeight = "400px";
-      img.style.display = "block";
-      img.style.marginBottom = "8px";
-      img.style.borderRadius = "4px";
-      img.style.cursor = "pointer";
-      img.title = "Click to view full size";
+      img.className = "image-thumbnail";
+      img.alt = fileName;
 
-      // Click to open in new tab
-      img.onclick = () => {
-        window.open(objectUrl, "_blank");
+      wrapper.appendChild(img);
+      
+      // Click handler to open lightbox
+      wrapper.onclick = () => {
+        openImageModal(objectUrl, fileName);
       };
 
-      // Create download button
-      const downloadBtn = document.createElement("button");
-      downloadBtn.textContent = "💾 Save Image";
-      downloadBtn.style.padding = "4px 8px";
-      downloadBtn.style.fontSize = "12px";
-      downloadBtn.style.cursor = "pointer";
-      downloadBtn.style.backgroundColor = "#4CAF50";
-      downloadBtn.style.color = "white";
-      downloadBtn.style.border = "none";
-      downloadBtn.style.borderRadius = "4px";
-      downloadBtn.onclick = () => {
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = fileName;
-        a.click();
-      };
+      // Create label div for below the image
+      const label = document.createElement("div");
+      label.style.fontSize = "12px";
+      label.style.color = "var(--ash)";
+      label.style.marginTop = "4px";
+      const senderLabel = getSenderLabel(senderPubB64);
+      label.textContent = `${senderLabel}: [image] ${fileName}`;
 
-      // Create info text
-      const info = document.createElement("div");
-      info.style.fontSize = "11px";
-      info.style.color = "#666";
-      info.style.marginTop = "4px";
-      info.textContent = `${fileName} (${(fileSize / 1024).toFixed(1)} KB)`;
-
-      // Assemble container
-      container.appendChild(img);
-      container.appendChild(downloadBtn);
-      container.appendChild(info);
+      entry.appendChild(wrapper);
+      entry.appendChild(label);
 
       img.onload = () => {
         log.scrollTop = log.scrollHeight;
@@ -596,15 +771,65 @@
         addWarningLog("Failed to load image preview");
       };
 
-      log.appendChild(container);
+      log.appendChild(entry);
 
-      // Cleanup object URL after 5 minutes
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 300000);
+      // Cleanup object URL after 15 minutes (extended since it's used in modal)
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 900000);
     } catch (err) {
       addLog("[error] Failed to display image: " + err.message, true);
       console.error("Image display error:", err);
     }
   }
+
+  // =============================================================================
+  // LIGHTBOX MODAL HANDLERS
+  // =============================================================================
+
+  let currentModalUrl = "";
+  let currentModalFilename = "";
+
+  function openImageModal(url, filename) {
+    if (!imageModal || !modalImg) return;
+    
+    currentModalUrl = url;
+    currentModalFilename = filename;
+    
+    modalImg.src = url;
+    imageModal.classList.add("show");
+    document.body.style.overflow = "hidden"; // Prevent scrolling
+  }
+
+  function closeImageModal() {
+    if (!imageModal) return;
+    imageModal.classList.remove("show");
+    document.body.style.overflow = ""; // Restore scrolling
+  }
+
+  if (modalClose) {
+    modalClose.onclick = closeImageModal;
+  }
+
+  if (imageModal) {
+    // Close on backdrop click
+    imageModal.onclick = (e) => {
+      if (e.target === imageModal) closeImageModal();
+    };
+  }
+
+  if (modalSave) {
+    modalSave.onclick = () => {
+      if (!currentModalUrl) return;
+      const a = document.createElement("a");
+      a.href = currentModalUrl;
+      a.download = currentModalFilename || "image";
+      a.click();
+    };
+  }
+
+  // Handle Esc key
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeImageModal();
+  });
 
   /**
    * Send image via chunked encrypted transfer
@@ -632,9 +857,10 @@
       return false;
     }
 
+    let transferId; // Declare transferId here for scope in catch block
     try {
       // Generate random transfer ID
-      const transferId = sodium.to_hex(sodium.randombytes_buf(16));
+      transferId = sodium.to_hex(sodium.randombytes_buf(16));
 
       // Read file as ArrayBuffer
       const arrayBuffer = await file.arrayBuffer();
@@ -659,35 +885,35 @@
         size: bytes.length,
         chunkSize: chunkSize,
         chunks: numChunks,
+        signature: { publicKey: getLocalPublicKeyB64() },
       };
 
       const { nonce: metaNonce, ciphertext: metaCipher } =
         encryptPayload(metaPayload);
 
       if (
-        !sendEnvelope("IMG_META", {
+        !(await sendEnvelope("IMG_META", {
           v: PROTOCOL_VERSION,
-          seq: nextSeq(),
+          seq: 0, // Server will assign actual seq
           n: metaNonce,
           c: metaCipher,
-        })
+        }))
       ) {
-        addWarningLog("Failed to send IMG_META (connection lost)");
-        return false;
+        throw new Error("Connection lost during metadata phase");
       }
+
+      updateProgressBar(transferId, 0, `Uploading: ${file.name}`);
 
       // Wait for WebSocket buffer to drain before sending chunks
       if (!(await waitForBufferDrain())) {
-        addWarningLog("Connection lost after IMG_META");
-        return false;
+        throw new Error("Connection failed (write buffer full)");
       }
 
       // Send chunks with connection checks
       for (let i = 0; i < numChunks; i++) {
         // Check connection before each chunk
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-          addWarningLog(`Connection lost at chunk ${i}/${numChunks}`);
-          return false;
+          throw new Error(`Connection lost at chunk ${i}/${numChunks}`);
         }
 
         const start = i * chunkSize;
@@ -704,32 +930,30 @@
         const { nonce: chunkNonce, ciphertext: chunkCipher } =
           encryptPayload(chunkPayload);
 
-        if (
-          !sendEnvelope("IMG_CHUNK", {
+        if (!(await sendEnvelope("IMG_CHUNK", {
             v: PROTOCOL_VERSION,
-            seq: nextSeq(),
+            seq: 0, // Server will assign actual seq
             n: chunkNonce,
             c: chunkCipher,
-          })
+          }))
         ) {
-          addWarningLog(`Failed to send chunk ${i}/${numChunks}`);
-          return false;
+          throw new Error(`Server rejected chunk ${i}/${numChunks}`);
         }
+
+        updateProgressBar(transferId, ((i + 1) / numChunks) * 100, `Uploading: ${file.name}`);
 
         // Wait for buffer to drain before next chunk
         if (!(await waitForBufferDrain())) {
-          addWarningLog(`Connection lost at chunk ${i + 1}/${numChunks}`);
-          return false;
+          throw new Error(`Connection stalled at chunk ${i + 1}/${numChunks}`);
         }
 
-        // Longer delay for stability (50ms between chunks)
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // Pacing to prevent overwhelming the server buffer or DB transactions
+        await new Promise((resolve) => setTimeout(resolve, 15));
       }
 
       // Final connection check
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addWarningLog("Connection lost before IMG_END");
-        return false;
+        throw new Error("Connection lost before IMG_END");
       }
 
       // Send IMG_END
@@ -741,25 +965,32 @@
         encryptPayload(endPayload);
 
       if (
-        !sendEnvelope("IMG_END", {
+        !(await sendEnvelope("IMG_END", {
           v: PROTOCOL_VERSION,
-          seq: nextSeq(),
+          seq: 0, // Server will assign actual seq
           n: endNonce,
           c: endCipher,
-        })
+        }))
       ) {
-        addWarningLog("Failed to send IMG_END");
-        return false;
+        throw new Error("Failed to finalize image transfer");
       }
 
-      addSystemLog("Image sent");
+      removeProgressBar(transferId);
+      addSystemLog("Image sent successfully");
 
       // Display preview for sender too
-      displayImagePreview(file, bytes, file.name, bytes.length, "< ");
+      displayImagePreview(
+        file,
+        bytes,
+        file.name,
+        bytes.length,
+        getLocalPublicKeyB64()
+      );
 
       return true;
     } catch (err) {
-      addLog("[error] Failed to send image: " + err.message, true);
+      addErrorLog(`Image upload failed: ${err.message}. Please try again.`);
+      if (transferId) removeProgressBar(transferId);
       return false;
     }
   }
@@ -799,6 +1030,8 @@
           1
         )}KB, ${payload.chunks} chunks)`
       );
+
+      updateProgressBar(payload.id, 0, `Downloading: ${payload.name}`);
     } catch (err) {
       addWarningLog("Invalid IMG_META: " + err.message);
     }
@@ -810,6 +1043,12 @@
   function handleImageChunk(data) {
     try {
       validateEncryptedEnvelope(data);
+      // Detect replay FIRST
+      if (typeof data.seq === "number" && data.seq <= lastSeenSeq) {
+        noteReplayActivity();
+      }
+
+      // THEN update lastSeenSeq for new messages
       if (typeof data.seq === "number" && data.seq > lastSeenSeq) {
         lastSeenSeq = data.seq;
       }
@@ -838,6 +1077,15 @@
       const chunkBytes = sodium.from_base64(payload.b);
       transfer.chunks.set(payload.i, chunkBytes);
       transfer.receivedBytes += chunkBytes.length;
+      if (!historyReplayActive) {
+        resetImageTransferIdleTimer(payload.id);
+      }
+
+      updateProgressBar(
+        payload.id,
+        (transfer.chunks.size / transfer.meta.chunks) * 100,
+        `Downloading: ${transfer.meta.name}`
+      );
 
       debugLog(`Chunk ${payload.i + 1}/${transfer.meta.chunks} received`);
     } catch (err) {
@@ -864,43 +1112,45 @@
       }
 
       // Check if all chunks received
-      if (transfer.chunks.size !== transfer.meta.chunks) {
-        addWarningLog(
-          `Incomplete image: ${transfer.chunks.size}/${transfer.meta.chunks} chunks`
-        );
+    if (transfer.chunks.size !== transfer.meta.chunks) {
+      addErrorLog(
+        `Received incomplete image "${transfer.meta.name}" (${transfer.chunks.size}/${transfer.meta.chunks} chunks). The sender might have been disconnected or overwhelmed.`
+      );
+      removeProgressBar(payload.id);
+      incomingImages.delete(payload.id);
+      return;
+    }
+
+    // Assemble image
+    const imageBytes = new Uint8Array(transfer.meta.size);
+    let offset = 0;
+    for (let i = 0; i < transfer.meta.chunks; i++) {
+      const chunk = transfer.chunks.get(i);
+      if (!chunk) {
+        addErrorLog(`Failed to assemble image: missing chunk ${i + 1}`);
         incomingImages.delete(payload.id);
+        removeProgressBar(payload.id);
         return;
       }
+      imageBytes.set(chunk, offset);
+      offset += chunk.length;
+    }
 
-      // Assemble image
-      const imageBytes = new Uint8Array(transfer.meta.size);
-      let offset = 0;
-      for (let i = 0; i < transfer.meta.chunks; i++) {
-        const chunk = transfer.chunks.get(i);
-        if (!chunk) {
-          addWarningLog("Missing chunk during assembly: " + i);
-          incomingImages.delete(payload.id);
-          return;
-        }
-        imageBytes.set(chunk, offset);
-        offset += chunk.length;
-      }
+    // Create blob and display
+    // const blob = new Blob([imageBytes], { type: transfer.meta.mime }); // blob is handled in displayImagePreview
 
-      // Create blob and display
-      const blob = new Blob([imageBytes], { type: transfer.meta.mime });
+    // Display preview using helper
+    displayImagePreview(
+      { type: transfer.meta.mime },
+      imageBytes,
+      transfer.meta.name,
+      transfer.meta.size,
+      extractSenderPublicKey(transfer.meta)
+    );
 
-      // Display preview using helper
-      displayImagePreview(
-        { type: transfer.meta.mime },
-        imageBytes,
-        transfer.meta.name,
-        transfer.meta.size,
-        "> "
-      );
-
-      // Cleanup
-      incomingImages.delete(payload.id);
-      addSystemLog("Image received");
+    // Cleanup
+    removeProgressBar(payload.id);
+    incomingImages.delete(payload.id);
     } catch (err) {
       addWarningLog("Invalid IMG_END: " + err.message);
     }
@@ -909,11 +1159,18 @@
   /**
    * Garbage collect incomplete image transfers (timeout)
    */
+  function resetImageTransferIdleTimer(transferId) {
+    const transfer = incomingImages.get(transferId);
+    if (!transfer) return;
+    transfer.startTime = Date.now();
+  }
+
   function cleanupStaleImageTransfers() {
     const now = Date.now();
     for (const [id, transfer] of incomingImages.entries()) {
       if (now - transfer.startTime > IMAGE_TRANSFER_TIMEOUT) {
         addWarningLog("Image transfer timeout: " + transfer.meta.name);
+        removeProgressBar(id);
         incomingImages.delete(id);
       }
     }
@@ -926,7 +1183,7 @@
   // WEBSOCKET MESSAGE HANDLERS
   // =============================================================================
 
-  function sendEnvelope(type, data) {
+  async function sendEnvelope(type, data) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       addWarningLog("Cannot send (not connected)");
       return false;
@@ -961,13 +1218,13 @@
       return false;
     }
 
-    // Wait if buffer is getting large (> 64KB - more conservative)
-    const MAX_BUFFER = 64 * 1024;
+    // Wait if buffer is getting large (> 512KB - allowing ~32 16KB chunks in flight)
+    const MAX_BUFFER = 512 * 1024;
     let iterations = 0;
-    const MAX_ITERATIONS = 100; // 1 second timeout
+    const MAX_ITERATIONS = 1000; // 5 second timeout (1000 * 5ms)
 
     while (ws.bufferedAmount > MAX_BUFFER) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 5));
       iterations++;
 
       // Check if connection is still alive
@@ -988,15 +1245,15 @@
     return true;
   }
 
-  function sendHello() {
+  async function sendHello() {
     if (!myKeypair) {
       addWarningLog("Cannot send HELLO (no keypair)");
       return;
     }
 
-    sendEnvelope("HELLO", {
+    await sendEnvelope("HELLO", {
       v: PROTOCOL_VERSION,
-      pub: sodium.to_base64(myKeypair.publicKey),
+      pub: getLocalPublicKeyB64(),
     });
 
     if (handshakeState === HandshakeState.INIT) {
@@ -1005,23 +1262,16 @@
     debugLog("Sent HELLO");
   }
 
-  function nextSeq() {
-    if (lastSeenSeq > outboundSeq) {
-      outboundSeq = lastSeenSeq;
-    }
-    outboundSeq += 1;
-    return outboundSeq;
-  }
 
-  function sendReady() {
-    sendEnvelope("READY", {
+  async function sendReady() {
+    await sendEnvelope("READY", {
       v: PROTOCOL_VERSION,
       lastSeenSeq: lastSeenSeq,
     });
     debugLog("Sent READY with lastSeenSeq=" + lastSeenSeq);
   }
 
-  function sendEncryptedMessage(text) {
+  async function sendEncryptedMessage(text) {
     if (handshakeState !== HandshakeState.E2EE_ACTIVE) {
       addWarningLog("Cannot send encrypted (E2EE not active)");
       return false;
@@ -1029,17 +1279,13 @@
 
     try {
       const { nonce, ciphertext } = encryptMessage(text);
-      if (lastSeenSeq > outboundSeq) {
-        outboundSeq = lastSeenSeq;
-      }
-      outboundSeq += 1;
-      sendEnvelope("MSG", {
+      await sendEnvelope("MSG", {
         v: PROTOCOL_VERSION,
-        seq: outboundSeq,
+        seq: 0, // Server will assign actual seq
         n: nonce,
         c: ciphertext,
       });
-      addLog("< " + text);
+      addChatLine(text, getLocalPublicKeyB64());
       return true;
     } catch (err) {
       addLog("[error] Encryption failed: " + err.message, true);
@@ -1047,7 +1293,7 @@
     }
   }
 
-  function sendPlaintextMessage(text) {
+  async function sendPlaintextMessage(text) {
     if (handshakeState === HandshakeState.E2EE_ACTIVE) {
       addWarningLog("⛔ Plaintext blocked (E2EE is active)");
       addSystemLog("Refusing to send plaintext in E2EE mode");
@@ -1059,16 +1305,17 @@
       return false;
     }
 
-    sendEnvelope("CHAT", { text: text });
-    addLog("< " + text + " [plaintext]");
+    const senderPub = getLocalPublicKeyB64();
+    await sendEnvelope("CHAT", { text: text, signature: { publicKey: senderPub } });
+    addChatLine(text, senderPub, "[plaintext]");
     return true;
   }
 
-  function handleHello(data) {
+  async function handleHello(data) {
     try {
       validateHelloMessage(data);
 
-      if (myKeypair && sodium.to_base64(myKeypair.publicKey) === data.pub) {
+      if (getLocalPublicKeyB64() === data.pub) {
         debugLog("Ignoring own HELLO");
         return;
       }
@@ -1098,13 +1345,13 @@
 
       // Respond to HELLO if we haven't yet
       if (handshakeState === HandshakeState.INIT || handshakeState === HandshakeState.GOT_PEER_HELLO) {
-        sendHello();
+        await sendHello();
       }
 
       // Key already derived from room token - activate E2EE and signal ready
       if (myKeypair && peerPublicKey && msgKey) {
         setE2EEActive();
-        sendReady();
+        await sendReady();
       }
     } catch (err) {
       addWarningLog("Invalid HELLO message: " + err.message);
@@ -1131,11 +1378,11 @@
       if (typeof data.seq === "number" && data.seq > lastSeenSeq) {
         lastSeenSeq = data.seq;
       }
-      const plaintext = decryptMessage(data.n, data.c);
-      addLog("> " + plaintext);
+      const payload = decryptMessage(data.n, data.c);
+      addChatLine(payload.text, payload.pub);
     } catch (err) {
       addWarningLog("Failed to decrypt message: " + err.message);
-      addLog("> [encrypted message - decryption failed]");
+      addChatLine("[encrypted message - decryption failed]", null);
     }
   }
 
@@ -1149,7 +1396,7 @@
         return;
       }
 
-      addLog("> " + data.text + " [plaintext]");
+      addChatLine(data.text, extractSenderPublicKey(data), "[plaintext]");
     } catch (err) {
       addWarningLog("Invalid CHAT message: " + err.message);
     }
@@ -1165,7 +1412,7 @@
     addWarningLog(`[server error] ${code}: ${message}`);
   }
 
-  function handleMessage(event) {
+  async function handleMessage(event) {
     try {
       if (event.data.length > MAX_WS_MESSAGE_BYTES) {
         addWarningLog("Oversized message ignored (exceeds size limit)");
@@ -1186,10 +1433,19 @@
         addWarningLog("Invalid envelope: " + err.message);
         return;
       }
+      
+      const replaySeq =
+        envelope.d && typeof envelope.d.seq === "number"
+          ? envelope.d.seq
+          : null;
+
+      if (replaySeq !== null && replaySeq <= lastSeenSeq) {
+        noteReplayActivity();
+      }
 
       switch (envelope.t) {
         case "HELLO":
-          handleHello(envelope.d);
+          await handleHello(envelope.d);
           break;
         case "READY":
           handleReady(envelope.d);
@@ -1232,14 +1488,14 @@
 
     ws = new WebSocket(wsUrl);
 
-    ws.onopen = function () {
+    ws.onopen = async function () {
       addLog("[connected]");
 
       if (sodium && myKeypair) {
-        sendHello();
+        await sendHello();
         // Send READY immediately to request history replay (don't wait for peer)
         if (msgKey) {
-          sendReady();
+          await sendReady();
         }
       } else {
         setPlaintextMode("libsodium not loaded");
@@ -1262,7 +1518,7 @@
   // =============================================================================
 
   // Text message form
-  form.onsubmit = function (event) {
+  form.onsubmit = async function (event) {
     event.preventDefault();
 
     const text = input.value.trim();
@@ -1275,15 +1531,35 @@
 
     let sent = false;
     if (handshakeState === HandshakeState.E2EE_ACTIVE && msgKey) {
-      sent = sendEncryptedMessage(text);
+      sent = await sendEncryptedMessage(text);
     } else {
-      sent = sendPlaintextMessage(text);
+      sent = await sendPlaintextMessage(text);
     }
 
     if (sent) {
       input.value = "";
+      input.style.height = "auto"; // Reset height after sending
     }
   };
+
+  // Auto-expand textarea & Handle Enter key
+  if (input) {
+    input.addEventListener("input", function () {
+      this.style.height = "auto";
+      const newHeight = Math.min(this.scrollHeight, 200);
+      this.style.height = newHeight + "px";
+      // Show scrollbar only if max-height is reached
+      this.style.overflowY = this.scrollHeight > 200 ? "auto" : "hidden";
+    });
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        form.dispatchEvent(new Event("submit"));
+      }
+    });
+  }
+
 
   // Image button
   if (imageButton) {
@@ -1363,8 +1639,39 @@
 
       addSystemLog("Cryptography library loaded");
 
-      myKeypair = sodium.crypto_kx_keypair();
-      addSystemLog("Generated ephemeral keypair");
+      if (privParam) {
+        try {
+          const priv = sodium.from_base64(privParam);
+          if (priv.length !== 32) {
+            throw new Error("Invalid private key length");
+          }
+          if (typeof sodium.crypto_kx_seed_keypair === "function") {
+            myKeypair = sodium.crypto_kx_seed_keypair(priv);
+          } else if (typeof sodium.crypto_scalarmult_base === "function") {
+            myKeypair = {
+              publicKey: sodium.crypto_scalarmult_base(priv),
+              privateKey: priv,
+            };
+          } else {
+            throw new Error("No key derivation function available");
+          }
+          addSystemLog("Imported keypair from URL");
+        } catch (err) {
+          addWarningLog("Invalid priv param, generating fresh keypair");
+          debugLog("priv param error: " + err.message);
+          myKeypair = sodium.crypto_kx_keypair();
+          addSystemLog("Generated ephemeral keypair");
+        }
+      } else {
+        const seed = sodium.crypto_generichash(32, "creator|" + roomToken);
+        myKeypair = sodium.crypto_kx_seed_keypair(seed);
+        sodium.memzero(seed);
+        addSystemLog("Derived creator keypair");
+      }
+
+      localPublicKey = myKeypair.publicKey;
+      localPublicKeyB64 = sodium.to_base64(localPublicKey);
+      refreshChatLabels();
 
       // Derive deterministic room key (allows cross-device + replay)
       if (deriveRoomKey()) {

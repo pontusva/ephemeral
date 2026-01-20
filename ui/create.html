@@ -305,6 +305,14 @@
         margin-top: 12px;
       }
 
+      .link-label {
+        margin-top: 14px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.6);
+      }
+
       .link-input {
         flex: 1;
         padding: 12px 14px;
@@ -516,6 +524,7 @@
 
       <div class="result" id="result">
         <h3>✓ Room created</h3>
+        <div class="link-label">Creator link (user_1)</div>
         <div class="link-container">
           <input
             type="text"
@@ -528,6 +537,23 @@
             Copy
           </button>
         </div>
+        <div class="link-label">Invitee link (user_2)</div>
+        <div class="link-container">
+          <input
+            type="text"
+            class="link-input"
+            id="inviteeLink"
+            readonly
+            onclick="this.select()"
+          />
+          <button
+            class="copy-button"
+            id="inviteeCopyBtn"
+            onclick="copyInviteeLink()"
+          >
+            Copy
+          </button>
+        </div>
         <div class="expiry-info" id="expiryInfo"></div>
       </div>
 
@@ -536,6 +562,7 @@
       <div class="tag">encrypted with <span>♥</span> // ephemeral</div>
     </div>
 
+    <script src="vendor/sodium.js"></script>
     <script>
       function updateSelection(radio) {
         document.querySelectorAll(".radio-option").forEach((option) => {
@@ -543,6 +570,8 @@
         });
         radio.parentElement.classList.add("selected");
       }
+
+      let inviteeLinkValue = "";
 
       document
         .getElementById("createForm")
@@ -575,9 +604,25 @@
 
             const data = await response.json();
             const fullUrl = window.location.origin + data.url;
+            const roomUrl = new URL(fullUrl);
+            const roomToken = roomUrl.hash.startsWith("#")
+              ? roomUrl.hash.slice(1)
+              : "";
 
             // Show result
             document.getElementById("roomLink").value = fullUrl;
+
+            if (!window.sodium) {
+              throw new Error("libsodium not loaded");
+            }
+            await window.sodium.ready;
+            const inviteeKeypair = window.sodium.crypto_kx_keypair();
+            const privB64 = window.sodium.to_base64(inviteeKeypair.privateKey);
+            inviteeLinkValue = `${roomUrl.origin}${roomUrl.pathname}#${roomToken}&priv=${encodeURIComponent(
+              privB64
+            )}`;
+            document.getElementById("inviteeLink").value = inviteeLinkValue;
+
             document.getElementById("expiryInfo").textContent =
               "🕒 Expires: " + formatExpiry(data.expires_at);
             result.classList.add("show");
@@ -586,6 +631,9 @@
             const copyBtn = document.getElementById("copyBtn");
             copyBtn.textContent = "Copy";
             copyBtn.classList.remove("copied");
+            const inviteeCopyBtn = document.getElementById("inviteeCopyBtn");
+            inviteeCopyBtn.textContent = "Copy";
+            inviteeCopyBtn.classList.remove("copied");
           } catch (err) {
             error.textContent = "⚠ Failed to create room. Please try again.";
             error.classList.add("show");
@@ -608,6 +656,33 @@
         setTimeout(() => {
           copyBtn.textContent = "Copy";
           copyBtn.classList.remove("copied");
+        }, 2000);
+      }
+
+      function copyToClipboard(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          return navigator.clipboard.writeText(text);
+        }
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+        return Promise.resolve();
+      }
+
+      async function copyInviteeLink() {
+        if (!inviteeLinkValue) return;
+        await copyToClipboard(inviteeLinkValue);
+        const inviteeCopyBtn = document.getElementById("inviteeCopyBtn");
+        inviteeCopyBtn.textContent = "Copied!";
+        inviteeCopyBtn.classList.add("copied");
+        setTimeout(() => {
+          inviteeCopyBtn.textContent = "Copy";
+          inviteeCopyBtn.classList.remove("copied");
         }, 2000);
       }
 
