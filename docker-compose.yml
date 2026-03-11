@@ -1,0 +1,27 @@
+services:
+  server:
+    build:
+      context: ./ephemeral
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:5000:4000"
+    volumes:
+      - ephemeral-data:/app/data
+    environment:
+      - EPHEMERAL_HOST=0.0.0.0
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: ./ephemeral_bot
+      dockerfile: Dockerfile
+    depends_on:
+      - server
+    environment:
+      - SERVER_URL=http://server:4000
+    volumes:
+      - ephemeral-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  ephemeral-data:

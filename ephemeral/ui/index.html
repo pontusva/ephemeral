@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Ephemeral Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Darker+Grotesque:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet" />
+  <style>
+    :root {
+      --slime: #b8ff00;
+      --slime-dark: #8bc900;
+      --slime-glow: rgba(184, 255, 0, 0.4);
+      --void: #0a0a0a;
+      --void-light: #141414;
+      --void-lighter: #1f1f1f;
+      --smoke: #2a2a2a;
+      --ash: #888;
+      --ghost: #ccc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Space Mono", monospace;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background: var(--void);
+      background-image: radial-gradient(ellipse at 20% 80%,
+          rgba(184, 255, 0, 0.03) 0%,
+          transparent 50%),
+        radial-gradient(ellipse at 80% 20%,
+          rgba(184, 255, 0, 0.02) 0%,
+          transparent 40%),
+        linear-gradient(180deg,
+          var(--void) 0%,
+          var(--void-light) 50%,
+          var(--void) 100%);
+      color: var(--ghost);
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 40px 24px;
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    @keyframes glitch {
+      0% {
+        text-shadow: 2px 0 var(--slime), -2px 0 #ff00ff;
+      }
+
+      25% {
+        text-shadow: -2px 0 var(--slime), 2px 0 #00ffff;
+      }
+
+      50% {
+        text-shadow: 2px 0 #ff00ff, -2px 0 var(--slime);
+      }
+
+      75% {
+        text-shadow: -2px 0 #00ffff, 2px 0 var(--slime);
+      }
+
+      100% {
+        text-shadow: 2px 0 var(--slime), -2px 0 #ff00ff;
+      }
+    }
+
+    h2 {
+      font-family: "Darker Grotesque", sans-serif;
+      font-size: 3.5rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      margin: 0 0 32px 0;
+      color: var(--slime);
+      text-shadow: 0 0 40px var(--slime-glow), 0 0 80px rgba(184, 255, 0, 0.2);
+      position: relative;
+    }
+
+    h2:hover {
+      animation: glitch 0.3s ease-in-out;
+    }
+
+    h2::after {
+      content: "";
+      display: block;
+      width: 60px;
+      height: 4px;
+      background: linear-gradient(90deg, var(--slime), transparent);
+      margin-top: 12px;
+      border-radius: 2px;
+    }
+
+    .banner {
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      border-radius: 2px;
+      font-size: 13px;
+      letter-spacing: 0.03em;
+      border-left: 3px solid;
+      backdrop-filter: blur(10px);
+    }
+
+    #expiry-banner {
+      display: none;
+      background: rgba(255, 193, 7, 0.08);
+      border-color: #ffc107;
+      color: #ffc107;
+    }
+
+    #e2ee-banner {
+      background: rgba(255, 100, 100, 0.08);
+      border-color: #ff6b6b;
+      color: #ff6b6b;
+    }
+
+    #e2ee-status {
+      display: none;
+      background: rgba(184, 255, 0, 0.06);
+      border-color: var(--slime);
+      color: var(--slime);
+    }
+
+    #log {
+      background: var(--void-light);
+      border: 1px solid var(--smoke);
+      border-radius: 4px;
+      padding: 20px;
+      height: 380px;
+      overflow-y: auto;
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      color: var(--ghost);
+      box-shadow: inset 0 2px 20px rgba(0, 0, 0, 0.3),
+        0 0 60px rgba(184, 255, 0, 0.02);
+      position: relative;
+    }
+
+    #log::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg,
+          transparent,
+          var(--slime-glow),
+          transparent);
+    }
+
+    /* Custom scrollbar */
+    #log::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    #log::-webkit-scrollbar-track {
+      background: var(--void);
+    }
+
+    #log::-webkit-scrollbar-thumb {
+      background: var(--smoke);
+      border-radius: 3px;
+    }
+
+    #log::-webkit-scrollbar-thumb:hover {
+      background: var(--slime-dark);
+    }
+
+    .log-error {
+      color: #ff6b6b;
+      font-weight: bold;
+    }
+
+    .log-warning {
+      color: #ffc107;
+    }
+
+    .log-system {
+      color: var(--slime);
+      opacity: 0.8;
+    }
+
+    #send {
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    #msg {
+      flex: 1;
+      padding: 14px 18px;
+      font-family: "Space Mono", monospace;
+      font-size: 14px;
+      background: var(--void-lighter);
+      border: 1px solid var(--smoke);
+      border-radius: 4px;
+      color: var(--ghost);
+      outline: none;
+      transition: all 0.2s ease;
+      resize: none;
+      overflow-y: hidden;
+      min-height: 48px;
+      max-height: 200px;
+      line-height: 1.5;
+    }
+
+    #msg::placeholder {
+      color: var(--ash);
+      opacity: 0.5;
+    }
+
+    #msg:focus {
+      border-color: var(--slime);
+      box-shadow: 0 0 0 3px rgba(184, 255, 0, 0.1),
+        0 0 20px rgba(184, 255, 0, 0.1);
+    }
+
+    #msg:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button {
+      font-family: "Darker Grotesque", sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    button[type="submit"] {
+      background: var(--slime);
+      color: var(--void);
+    }
+
+    button[type="submit"]:hover {
+      background: var(--slime-dark);
+      box-shadow: 0 0 30px var(--slime-glow);
+      transform: translateY(-1px);
+    }
+
+    button[type="submit"]:active {
+      transform: translateY(0);
+    }
+
+    button[type="submit"]:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      filter: grayscale(0.5);
+    }
+
+    #image-btn,
+    #video-btn {
+      background: var(--void-lighter);
+      color: var(--ash);
+      border: 1px solid var(--smoke);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 12px;
+      height: 48px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    #image-btn:not(.disabled):hover,
+    #video-btn:not(.disabled):hover {
+      border-color: var(--slime);
+      color: var(--slime);
+      box-shadow: 0 0 20px rgba(184, 255, 0, 0.1);
+    }
+
+    #image-btn.disabled,
+    #video-btn.disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    #image-input,
+    #video-input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+      opacity: 0;
+    }
+
+    /* Decorative elements */
+    .noise {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0.015;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+      z-index: 9999;
+    }
+
+    .scanline {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      background: repeating-linear-gradient(0deg,
+          rgba(0, 0, 0, 0.1) 0px,
+          rgba(0, 0, 0, 0.1) 1px,
+          transparent 1px,
+          transparent 3px);
+      opacity: 0.03;
+      z-index: 9998;
+    }
+
+    /* Footer tag */
+    .tag {
+      margin-top: 40px;
+      font-size: 11px;
+      color: var(--ash);
+      opacity: 0.4;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .tag span {
+      color: var(--slime);
+    }
+
+    /* Progress Bar Styles */
+    #progress-area {
+      margin-bottom: 16px;
+    }
+
+    .progress-wrapper {
+      background: var(--void-light);
+      border: 1px solid var(--smoke);
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      margin-bottom: 6px;
+      color: var(--ash);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .progress-bar-container {
+      height: 4px;
+      background: var(--void-lighter);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--slime);
+      width: 0%;
+      transition: width 0.2s ease;
+      box-shadow: 0 0 10px var(--slime-glow);
+    }
+
+    /* Image Thumbnail & Lightbox */
+    .image-thumbnail-wrapper {
+      margin: 10px 0;
+      display: inline-block;
+      position: relative;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid var(--smoke);
+      background: var(--void-lighter);
+      line-height: 0;
+    }
+
+    .image-thumbnail-wrapper:hover {
+      transform: scale(1.02);
+      border-color: var(--slime);
+      box-shadow: 0 0 20px rgba(184, 255, 0, 0.15);
+    }
+
+    .image-thumbnail,
+    .video-preview {
+      max-width: 240px;
+      max-height: 180px;
+      display: block;
+      object-fit: cover;
+    }
+
+    .video-preview {
+      background: #000;
+      cursor: pointer;
+    }
+
+    #image-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.9);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+      padding: 40px;
+      backdrop-filter: blur(8px);
+    }
+
+    #image-modal.show {
+      display: flex;
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    #modal-img {
+      max-width: 100%;
+      max-height: calc(100vh - 160px);
+      object-fit: contain;
+      box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .modal-actions {
+      margin-top: 24px;
+      display: flex;
+      gap: 16px;
+    }
+
+    .modal-btn {
+      padding: 12px 24px;
+      background: var(--void-lighter);
+      border: 1px solid var(--smoke);
+      color: var(--ghost);
+      border-radius: 4px;
+      font-family: "Darker Grotesque", sans-serif;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .modal-btn:hover {
+      border-color: var(--slime);
+      color: var(--slime);
+      background: rgba(184, 255, 0, 0.05);
+    }
+
+    .modal-btn.primary {
+      background: var(--slime);
+      color: var(--void);
+      border: none;
+    }
+
+    .modal-btn.primary:hover {
+      background: var(--slime-dark);
+      box-shadow: 0 0 30px var(--slime-glow);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="noise"></div>
+  <div class="scanline"></div>
+
+  <div class="container">
+    <h2>Ephemeral</h2>
+
+    <!-- Room Expiry Indicator -->
+    <div id="expiry-banner" class="banner">
+      🕒 <span id="expiry-text">Loading...</span>
+    </div>
+
+    <!-- E2EE Warning Banner -->
+    <div id="e2ee-banner" class="banner">
+      ⚠️ End-to-end encryption requires JavaScript. You are in plaintext mode.
+    </div>
+
+    <!-- E2EE Status Indicator -->
+    <div id="e2ee-status" class="banner">🔒 End-to-end encryption active</div>
+
+    <div id="progress-area"></div>
+    <div id="log"></div>
+
+    <form id="send">
+      <textarea id="msg" rows="1" autocomplete="off" placeholder="type something..."></textarea>
+      <button type="submit" id="send-btn">Send</button>
+      <label id="image-btn" for="image-input" class="icon-btn disabled" title="Send Image (E2EE required)">
+        📷
+      </label>
+      <input type="file" id="image-input" accept="image/*,.jpg,.jpeg,.png,.gif,.webp" />
+      <label id="video-btn" for="video-input" class="icon-btn disabled" title="Send Video (E2EE required)">
+        🎥
+      </label>
+      <input type="file" id="video-input" accept="video/*,.mp4,.webm,.ogg,.mov" />
+    </form>
+
+    <!-- Session Forwarding UI -->
+    <div id="session-forwarding" style="margin-top: 24px; padding: 16px; background: var(--void-lighter); border: 1px solid var(--smoke); border-radius: 4px;">
+      <div style="font-size: 12px; color: var(--slime); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Session Forwarding</div>
+      <div style="display: flex; gap: 10px;">
+        <input type="text" id="session-id" placeholder="Enter Session ID..." style="flex: 1; padding: 10px; background: var(--void); border: 1px solid var(--smoke); border-radius: 4px; color: var(--ghost); font-family: 'Space Mono', monospace; font-size: 12px; outline: none;" />
+        <button type="button" id="forward-btn" style="padding: 10px 16px; font-size: 12px;">Enable</button>
+      </div>
+      <div id="forward-status" style="font-size: 11px; color: var(--ash); margin-top: 8px;">Forwarding is currently disabled.</div>
+    </div>
+
+    <button type="button" id="destroy-btn" style="
+          width: 100%;
+          margin-top: 16px;
+          background: rgba(255, 100, 100, 0.1);
+          color: #ff6b6b;
+          border: 1px solid rgba(255, 100, 100, 0.3);
+        " title="Permanently delete this room and all messages">
+      🔥 Destroy Room
+    </button>
+
+    <div class="tag">encrypted with <span>♥</span> // ephemeral</div>
+  </div>
+
+  <div id="image-modal" role="dialog" aria-modal="true">
+    <img id="modal-img" src="" alt="Full size encrypted image" />
+    <div class="modal-actions">
+      <button id="modal-save" class="modal-btn primary">Save Image</button>
+      <button id="modal-close" class="modal-btn">Close</button>
+    </div>
+  </div>
+
+  <!-- Load libsodium first (must be ready before app.js) -->
+  <script src="vendor/sodium.js"></script>
+  <!-- External script - will contain all WebSocket and crypto logic -->
+  <script defer src="app.js"></script>
+</body>
+
+</html>

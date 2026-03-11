@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Security & OPSEC - Ephemeral</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Darker+Grotesque:wght@300;400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --slime: #b8ff00;
+        --slime-dark: #8bc900;
+        --void: #0a0a0a;
+        --void-light: #141414;
+        --void-lighter: #1f1f1f;
+        --smoke: #2a2a2a;
+        --ash: #888;
+        --ghost: #ccc;
+        --warning: #ffaa00;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Space Mono", monospace;
+        margin: 0;
+        padding: 40px 20px;
+        min-height: 100vh;
+        background: var(--void);
+        color: var(--ghost);
+        line-height: 1.7;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: var(--void-light);
+        border: 1px solid var(--smoke);
+        border-radius: 8px;
+        padding: 48px;
+      }
+
+      h1 {
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 2.5rem;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        text-transform: uppercase;
+        margin: 0 0 12px 0;
+        color: var(--slime);
+      }
+
+      .subtitle {
+        color: var(--ash);
+        font-size: 14px;
+        margin-bottom: 40px;
+        letter-spacing: 0.05em;
+      }
+
+      h2 {
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--slime);
+        margin: 36px 0 16px 0;
+        letter-spacing: 0.02em;
+      }
+
+      h3 {
+        font-family: "Darker Grotesque", sans-serif;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--ghost);
+        margin: 24px 0 12px 0;
+      }
+
+      p {
+        margin: 0 0 16px 0;
+        font-size: 14px;
+        color: var(--ghost);
+      }
+
+      ul, ol {
+        margin: 0 0 20px 0;
+        padding-left: 24px;
+      }
+
+      li {
+        margin-bottom: 10px;
+        font-size: 14px;
+        color: var(--ghost);
+      }
+
+      code {
+        background: var(--void);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: "Space Mono", monospace;
+        font-size: 13px;
+        color: var(--slime);
+      }
+
+      .warning-box {
+        background: rgba(255, 170, 0, 0.08);
+        border: 1px solid rgba(255, 170, 0, 0.3);
+        border-left: 4px solid var(--warning);
+        border-radius: 4px;
+        padding: 20px;
+        margin: 24px 0;
+      }
+
+      .warning-box p:last-child {
+        margin-bottom: 0;
+      }
+
+      .info-box {
+        background: rgba(184, 255, 0, 0.05);
+        border: 1px solid rgba(184, 255, 0, 0.2);
+        border-left: 4px solid var(--slime);
+        border-radius: 4px;
+        padding: 20px;
+        margin: 24px 0;
+      }
+
+      .info-box p:last-child {
+        margin-bottom: 0;
+      }
+
+      .back-link {
+        display: inline-block;
+        color: var(--slime);
+        text-decoration: none;
+        font-size: 14px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.2s ease;
+      }
+
+      .back-link:hover {
+        border-bottom-color: var(--slime);
+      }
+
+      strong {
+        color: var(--slime);
+        font-weight: 700;
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid var(--smoke);
+        margin: 40px 0;
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          padding: 32px 24px;
+        }
+
+        h1 {
+          font-size: 2rem;
+        }
+
+        h2 {
+          font-size: 1.4rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <a href="/create-room" class="back-link">← Back to Create Room</a>
+
+      <h1>Security & OPSEC</h1>
+      <p class="subtitle">Understanding the security model and operational tradeoffs</p>
+
+      <h2>Who This Is For</h2>
+      <p>
+        Ephemeral is built for people who need secure, time-limited communication without accounts, servers reading your messages, or permanent records. It's designed for journalists, activists, researchers, and anyone who values privacy and ephemerality.
+      </p>
+      <p>
+        <strong>This tool is NOT suitable for:</strong> Communication that requires persistent audit trails, regulatory compliance, or enterprise-grade infrastructure guarantees. If you need those, use a different tool.
+      </p>
+
+      <hr class="divider" />
+
+      <h2>What Ephemeral Protects</h2>
+
+      <h3>End-to-End Encryption</h3>
+      <p>
+        All messages and images are encrypted client-side using <strong>XChaCha20-Poly1305</strong> before they leave your browser. The server never sees your plaintext—only encrypted ciphertext. Even if the server is compromised, your messages remain unreadable.
+      </p>
+
+      <h3>No Accounts, No Tracking</h3>
+      <p>
+        There are no user accounts, no analytics, and no tracking. The server doesn't know who you are. It only knows that encrypted data is being relayed between two connections.
+      </p>
+
+      <h3>Time-Limited Existence</h3>
+      <p>
+        Rooms self-destruct after their chosen TTL (15 minutes, 1 hour, or 24 hours). Once expired, all messages are permanently deleted from the database. You can also manually destroy a room at any time using the "Destroy Room" button.
+      </p>
+
+      <h3>Forward Secrecy Per Room</h3>
+      <p>
+        Each room uses a unique encryption key derived from the room URL. Once a room is destroyed, its messages cannot be decrypted—even if future keys are compromised. However, this is <strong>per-room</strong> forward secrecy, not per-session.
+      </p>
+
+      <hr class="divider" />
+
+      <h2>What Ephemeral Does NOT Protect</h2>
+
+      <div class="warning-box">
+        <p><strong>The URL is the security boundary.</strong></p>
+        <p>
+          The room link <em>is</em> the password. Anyone with the URL can read all messages in that room. There is no separate authentication layer.
+        </p>
+      </div>
+
+      <h3>URL Leakage</h3>
+      <p>
+        If someone intercepts the room URL (via shoulder surfing, browser history, network sniffing on HTTP, or a compromised clipboard), they can access the entire conversation.
+      </p>
+      <p><strong>Always share room links over a separate secure channel.</strong></p>
+
+      <h3>Endpoint Security</h3>
+      <p>
+        Ephemeral cannot protect against compromised devices. If your computer has malware, keyloggers, or screen capture tools, your messages can be read. Keep your devices secure.
+      </p>
+
+      <h3>Browser History & Logs</h3>
+      <p>
+        The room URL appears in your browser's address bar and may be saved in history, bookmarks, or autocomplete. Clear your history after use, or use private browsing mode.
+      </p>
+
+      <h3>Screenshots & Photos</h3>
+      <p>
+        Messages that appear on your screen can be photographed or screenshotted. Ephemeral cannot prevent this. Be mindful of your physical environment.
+      </p>
+
+      <h3>Network Metadata</h3>
+      <p>
+        Your ISP or network administrator can see that you connected to this server (but not what you said). Use Tor Browser or a VPN if this is a concern.
+      </p>
+
+      <hr class="divider" />
+
+      <h2>Important Tradeoffs</h2>
+
+      <h3>Persistence Across Devices</h3>
+      <p>
+        Encryption keys are <strong>deterministic per room</strong>, not ephemeral per session. This means you can reload the page, switch devices, or reconnect, and still decrypt the full message history.
+      </p>
+      <p>
+        <strong>Tradeoff:</strong> This enables usability (reload without losing history), but sacrifices per-session forward secrecy. If an adversary records the encrypted traffic and later learns the room URL, they can decrypt past messages.
+      </p>
+      <p>
+        For maximum security, destroy the room as soon as your conversation ends.
+      </p>
+
+      <h3>Message Persistence Until Expiry</h3>
+      <p>
+        Messages are stored (encrypted) on the server until the room expires. This allows history replay when you reconnect, but means the encrypted data exists on disk.
+      </p>
+      <p>
+        If you need zero persistence, you'll need a different tool that never stores messages—at the cost of losing history on disconnect.
+      </p>
+
+      <hr class="divider" />
+
+      <h2>Practical OPSEC Guidance</h2>
+
+      <ol>
+        <li>
+          <strong>Use Tor Browser or a VPN</strong> if you need to hide your IP address and location from the server.
+        </li>
+        <li>
+          <strong>Share room URLs over a separate secure channel</strong> (e.g., Signal, encrypted email, in person). Never post them publicly.
+        </li>
+        <li>
+          <strong>Destroy rooms immediately after use</strong> using the "Destroy Room" button. Don't rely solely on automatic expiry.
+        </li>
+        <li>
+          <strong>Use private browsing mode</strong> to prevent the URL from being saved in your browser history.
+        </li>
+        <li>
+          <strong>Choose the shortest TTL you can</strong>. Prefer 15 minutes over 24 hours unless you need the extra time.
+        </li>
+        <li>
+          <strong>Be mindful of your physical environment</strong>. Lock your screen when you step away. Don't let others see your screen.
+        </li>
+        <li>
+          <strong>Clear your clipboard</strong> after sharing the room URL. Clipboard managers may retain the link.
+        </li>
+        <li>
+          <strong>Verify the connection is over HTTPS</strong> to prevent URL interception. Look for the lock icon in your browser.
+        </li>
+      </ol>
+
+      <hr class="divider" />
+
+      <h2>Technical Security Details</h2>
+
+      <h3>Cryptography</h3>
+      <ul>
+        <li><strong>Cipher:</strong> XChaCha20-Poly1305 (authenticated encryption)</li>
+        <li><strong>Key Derivation:</strong> BLAKE2b from room token</li>
+        <li><strong>Nonces:</strong> Randomly generated per message (192-bit)</li>
+        <li><strong>Library:</strong> libsodium.js (WebAssembly)</li>
+      </ul>
+
+      <h3>Server Role</h3>
+      <p>
+        The server is a <strong>dumb relay</strong>. It validates that messages have the correct structure (type, sequence number, nonce, ciphertext), but never decrypts them. It stores encrypted blobs and replays them on reconnect.
+      </p>
+
+      <h3>Source Code</h3>
+      <p>
+        This is open-source software. You can review the code, run your own instance, or audit the cryptographic implementation.
+      </p>
+
+      <hr class="divider" />
+
+      <h2>Limitations & Honest Disclosure</h2>
+
+      <p>
+        Ephemeral is <strong>not a silver bullet</strong>. It provides strong end-to-end encryption and time-limited storage, but it cannot protect against all threats. Understand the limitations:
+      </p>
+
+      <ul>
+        <li>The URL is the password. Protect it accordingly.</li>
+        <li>Keys are deterministic per room, not per session.</li>
+        <li>The server stores encrypted messages until expiry.</li>
+        <li>Your endpoints (devices, browsers) must be secure.</li>
+        <li>Network metadata is visible to ISPs and network operators.</li>
+      </ul>
+
+      <p>
+        If these tradeoffs are acceptable for your use case, Ephemeral provides a lightweight, privacy-respecting way to communicate. If not, consider tools with different security models.
+      </p>
+
+      <hr class="divider" />
+
+      <div class="info-box">
+        <p><strong>Questions or concerns?</strong></p>
+        <p>
+          If you discover a security issue, please report it responsibly. Do not use this tool for illegal activity.
+        </p>
+      </div>
+
+      <a href="/create-room" class="back-link">← Back to Create Room</a>
+    </div>
+  </body>
+</html>

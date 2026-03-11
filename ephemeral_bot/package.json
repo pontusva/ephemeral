@@ -1,0 +1,20 @@
+{
+  "name": "ephemeral_bot",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@session.js/client": "latest",
+    "@session.js/keypair": "^1.0.8",
+    "@session.js/mnemonic": "^1.0.6",
+    "libsodium-wrappers": "latest",
+    "ws": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/ws": "^8.18.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

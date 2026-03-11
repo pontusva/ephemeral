@@ -1,0 +1,54 @@
+.
+├── .gitignore
+├── E2EE-IMPLEMENTATION.md
+├── FIX-HELLO-WARNING.md
+├── QUICKSTART.md
+├── README.md
+├── STRUCTURE.txt
+├── TESTING-GUIDE.md
+├── cmd
+│   └── ephemeral
+│       └── main.go
+├── docs
+│   ├── HANDSHAKE-FIX.md
+│   ├── HARDENING-COMPLETE.md
+│   ├── IMAGE-CONNECTION-FIX.md
+│   ├── IMAGE-DISPLAY-COMPLETE.md
+│   ├── IMAGE-DISPLAY-ROOT-CAUSE.md
+│   ├── IMAGE-FIX.md
+│   ├── IMAGE-QUICKSTART.md
+│   ├── IMAGE-SIZE-ANALYSIS.md
+│   ├── IMAGE-SUMMARY.md
+│   ├── IMAGE-TRANSFER.md
+│   ├── IMAGE-VERIFICATION.md
+│   ├── IMPLEMENTATION.md
+│   └── RECEIVER-IMAGE-FIX.md
+├── go.mod
+├── go.sum
+├── internal
+│   ├── httpx
+│   │   ├── router.go
+│   │   └── ws.go
+│   ├── notify
+│   │   └── notify.go
+│   ├── rooms
+│   │   ├── cleanup.go
+│   │   ├── delete.go
+│   │   ├── messages.go
+│   │   ├── rooms.go
+│   │   └── time.go
+│   └── ws
+│       └── hub.go
+├── migrations
+│   ├── 001_rooms.sql
+│   └── 002_messages.sql
+└── ui
+    ├── app.js
+    ├── create.html
+    ├── docs
+    │   └── security.html
+    ├── index.html
+    ├── package-lock.json
+    └── package.json
+
+12 directories, 40 files
